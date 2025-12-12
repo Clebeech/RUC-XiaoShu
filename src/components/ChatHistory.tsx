@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { MessageSquare, Plus, Trash2, Clock } from 'lucide-react';
+import { MessageSquare, Plus, Trash2, Clock, Mail } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -11,7 +11,6 @@ import {
   DialogTitle,
   DialogTrigger,
   DialogFooter,
-  DialogClose,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -163,54 +162,64 @@ export default function ChatHistory({
   };
 
   return (
-    <div className="w-80 bg-gray-800 border-r border-gray-700 flex flex-col h-full">
-      <div className="p-4 border-b border-gray-700">
+    <div className="w-80 bg-secondary/30 border-r flex flex-col h-full">
+      <div className="p-4 border-b">
         <div className="flex items-center justify-between mb-1">
-          <h2 className="text-lg font-semibold text-white flex items-center">
-            <MessageSquare className="w-5 h-5 mr-2" />
+          <h2 className="text-lg font-bold text-foreground flex items-center">
+            <MessageSquare className="w-5 h-5 mr-2 text-primary" />
             聊天记录
           </h2>
-          <Button onClick={handleNewChat} size="sm" className="bg-blue-600 hover:bg-blue-700">
+          <Button 
+            onClick={handleNewChat} 
+            size="sm" 
+            className="h-8 w-8 p-0 rounded-full bg-primary hover:bg-primary/90 text-primary-foreground shadow-sm"
+          >
             <Plus className="w-4 h-4" />
           </Button>
         </div>
       </div>
 
       <ScrollArea className="flex-1">
-        <div className="p-2">
+        <div className="p-3 space-y-2">
           {chatSessions.map((chat) => (
             <Card
               key={chat.id}
-              className={`mb-2 cursor-pointer transition-colors ${
+              className={`cursor-pointer transition-all duration-200 border-0 shadow-none ${
                 currentChatId === chat.id
-                  ? 'bg-gray-600 border-blue-500'
-                  : 'bg-gray-700 border-gray-600 hover:bg-gray-600'
+                  ? 'bg-background shadow-sm ring-1 ring-border'
+                  : 'bg-transparent hover:bg-background/50 text-muted-foreground'
               }`}
               onClick={() => onChatSelect(chat.id)}
             >
               <CardContent className="p-3">
                 <div className="grid grid-cols-[1fr_auto] items-start gap-3">
                   <div className="min-w-0">
-                    <h3 className="text-sm font-medium text-white truncate">{chat.title}</h3>
-                    <p className="text-xs text-gray-400 mt-1 truncate">{chat.lastMessage}</p>
-                    <div className="flex items-center mt-2 text-xs text-gray-500">
+                    <h3 className={`text-sm font-medium truncate transition-colors ${
+                      currentChatId === chat.id ? 'text-foreground' : 'text-foreground/80'
+                    }`}>
+                      {chat.title}
+                    </h3>
+                    <p className="text-xs text-muted-foreground/70 mt-1 truncate">{chat.lastMessage}</p>
+                    <div className="flex items-center mt-2 text-[10px] text-muted-foreground/60">
                       <Clock className="w-3 h-3 mr-1" />
                       {formatTime(chat.timestamp)}
-                      <span className="ml-2">{chat.messageCount} 条消息</span>
+                      <span className="ml-2 bg-muted px-1.5 py-0.5 rounded-full">{chat.messageCount}</span>
                     </div>
                   </div>
-                  <div className="flex items-center h-full">
-                    <Button
-                      aria-label="删除对话"
-                      title="删除对话"
-                      variant="ghost"
-                      size="sm"
-                      onClick={(e) => handleDeleteChat(chat.id, e)}
-                      className="h-7 w-7 p-0 text-red-400 hover:text-red-300 hover:bg-gray-600"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
+                  {currentChatId === chat.id && (
+                    <div className="flex items-center h-full">
+                      <Button
+                        aria-label="删除对话"
+                        title="删除对话"
+                        variant="ghost"
+                        size="icon"
+                        onClick={(e) => handleDeleteChat(chat.id, e)}
+                        className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-full"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -218,17 +227,18 @@ export default function ChatHistory({
         </div>
       </ScrollArea>
 
-      <div className="p-4 border-t border-gray-700">
-        <div className="text-xs text-gray-500 text-center mb-2">
+      <div className="p-4 border-t bg-background/50 backdrop-blur-sm">
+        <div className="text-[10px] text-muted-foreground text-center mb-3">
           <p>共 {chatSessions.length} 个对话</p>
         </div>
         <Dialog open={isFeedbackDialogOpen} onOpenChange={setIsFeedbackDialogOpen}>
           <DialogTrigger asChild>
-            <Button className="w-full bg-blue-600 hover:bg-blue-700 text-white">
-              <span className="mr-2">📧</span> 点我反馈
+            <Button variant="outline" className="w-full justify-center gap-2 border-dashed">
+              <Mail className="w-4 h-4" />
+              <span>问题反馈</span>
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[425px] bg-gray-800 border-gray-700 text-white">
+          <DialogContent className="sm:max-w-[425px]">
             <DialogHeader>
               <DialogTitle>问题反馈</DialogTitle>
               <DialogDescription>
@@ -242,7 +252,6 @@ export default function ChatHistory({
                   id="feedback-text"
                   value={feedbackText}
                   onChange={(e) => setFeedbackText(e.target.value)}
-                  className="bg-gray-700 border-gray-600 placeholder:text-gray-500"
                   placeholder="请在此处输入您的反馈..."
                   rows={6}
                 />
@@ -252,7 +261,7 @@ export default function ChatHistory({
               <Button type="button" variant="secondary" onClick={() => setIsFeedbackDialogOpen(false)}>
                 取消
               </Button>
-              <Button type="submit" onClick={handleSendFeedback} className="bg-blue-600 hover:bg-blue-700">
+              <Button type="submit" onClick={handleSendFeedback}>
                 发送
               </Button>
             </DialogFooter>

@@ -116,20 +116,20 @@ export default function KnowledgeBaseManager({
       <Button 
         variant="outline" 
         size="sm" 
-        className="bg-gray-700 border-gray-600 hover:bg-gray-600"
+        className="bg-background text-foreground hover:bg-secondary/50 border-border"
         onClick={() => setIsOpen(true)}
       >
         <Database className="w-4 h-4 mr-2" />
-        知识库
+        知识库管理
       </Button>
 
       {/* 弹窗 */}
       {isOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <Card className="w-full max-w-4xl max-h-[90vh] overflow-hidden">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="flex items-center gap-2">
-                <Database className="h-5 w-5" />
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-4xl max-h-[90vh] overflow-hidden shadow-2xl border-border">
+            <CardHeader className="flex flex-row items-center justify-between border-b bg-muted/30">
+              <CardTitle className="flex items-center gap-2 text-foreground">
+                <Database className="h-5 w-5 text-primary" />
                 知识库管理
               </CardTitle>
               <div className="flex items-center gap-2">
@@ -141,28 +141,28 @@ export default function KnowledgeBaseManager({
                   <Trash2 className="h-4 w-4 mr-1" />
                   清空全部
                 </Button>
-                <Button variant="outline" onClick={() => setIsOpen(false)}>
+                <Button variant="ghost" onClick={() => setIsOpen(false)}>
                   关闭
                 </Button>
               </div>
             </CardHeader>
             
-            <CardContent className="overflow-y-auto max-h-[calc(90vh-120px)]">
+            <CardContent className="overflow-y-auto max-h-[calc(90vh-120px)] p-6 bg-background">
               {/* 统计信息 */}
               <div className="grid grid-cols-3 gap-4 mb-6">
-                <Card>
+                <Card className="bg-muted/20 border-border/50">
                   <CardContent className="p-4 text-center">
-                    <div className="text-2xl font-bold text-blue-600">{stats.totalDocuments}</div>
+                    <div className="text-2xl font-bold text-primary">{stats.totalDocuments}</div>
                     <div className="text-sm text-muted-foreground">文档总数</div>
                   </CardContent>
                 </Card>
-                <Card>
+                <Card className="bg-muted/20 border-border/50">
                   <CardContent className="p-4 text-center">
-                    <div className="text-2xl font-bold text-green-600">{stats.totalChunks}</div>
+                    <div className="text-2xl font-bold text-blue-600">{stats.totalChunks}</div>
                     <div className="text-sm text-muted-foreground">文档块数</div>
                   </CardContent>
                 </Card>
-                <Card>
+                <Card className="bg-muted/20 border-border/50">
                   <CardContent className="p-4 text-center">
                     <div className="text-2xl font-bold text-purple-600">
                       {documents.reduce((sum, doc) => sum + doc.size, 0) > 0 
@@ -177,22 +177,24 @@ export default function KnowledgeBaseManager({
 
               {/* 知识库标签页 */}
               <Tabs defaultValue="upload" className="w-full">
-                <TabsList className="grid w-full grid-cols-2">
+                <TabsList className="grid w-full grid-cols-2 mb-6">
                   <TabsTrigger value="upload">文档上传</TabsTrigger>
                   <TabsTrigger value="manage">文档管理</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="upload" className="space-y-4">
                   {/* 文件上传区域 */}
-                  <Card>
-                    <CardContent className="p-6">
-                      <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
-                        <Upload className="mx-auto h-12 w-12 text-gray-400 mb-4" />
-                        <h3 className="text-lg font-medium text-gray-900 mb-2">
+                  <Card className="border-dashed border-2 bg-muted/10">
+                    <CardContent className="p-10">
+                      <div className="text-center">
+                        <div className="bg-primary/5 p-4 rounded-full w-20 h-20 mx-auto mb-6 flex items-center justify-center">
+                           <Upload className="h-10 w-10 text-primary" />
+                        </div>
+                        <h3 className="text-lg font-medium text-foreground mb-2">
                           上传文档到知识库
                         </h3>
-                        <p className="text-gray-500 mb-4">
-                          支持 PDF、Word、TXT 格式文件
+                        <p className="text-muted-foreground mb-6 max-w-sm mx-auto">
+                          支持 PDF、Word、TXT 格式文件，上传后将自动进行分块和向量化处理
                         </p>
                         <input
                           ref={fileInputRef}
@@ -205,8 +207,10 @@ export default function KnowledgeBaseManager({
                         <Button 
                           onClick={() => fileInputRef.current?.click()}
                           disabled={uploading}
+                          className="px-8"
+                          size="lg"
                         >
-                          {uploading ? '上传中...' : '选择文件'}
+                          {uploading ? '正在处理...' : '选择文件'}
                         </Button>
                       </div>
                     </CardContent>
@@ -215,38 +219,40 @@ export default function KnowledgeBaseManager({
 
                 <TabsContent value="manage" className="space-y-4">
                   {/* 文档列表 */}
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-lg">已上传文档</CardTitle>
-                    </CardHeader>
-                    <CardContent>
+                  <Card className="border-none shadow-none">
+                    <CardContent className="p-0">
                       {documents.length === 0 ? (
-                        <div className="text-center py-8 text-gray-500">
-                          <FileText className="mx-auto h-12 w-12 mb-4" />
-                          <p>暂无文档，请上传文档到知识库</p>
+                        <div className="text-center py-12 text-muted-foreground">
+                          <FileText className="mx-auto h-12 w-12 mb-4 opacity-20" />
+                          <p>暂无文档，请切换到上传页签添加文档</p>
                         </div>
                       ) : (
                         <div className="space-y-3">
                           {documents.map((doc) => (
-                            <div key={doc.id} className="flex items-center justify-between p-4 border rounded-lg">
-                              <div className="flex items-center space-x-3">
-                                <FileText className="h-8 w-8 text-blue-500" />
+                            <div key={doc.id} className="flex items-center justify-between p-4 border rounded-xl hover:bg-muted/30 transition-colors">
+                              <div className="flex items-center space-x-4">
+                                <div className="p-2 bg-blue-50 rounded-lg">
+                                  <FileText className="h-6 w-6 text-blue-500" />
+                                </div>
                                 <div>
-                                  <h4 className="font-medium">{doc.name}</h4>
-                                  <div className="flex items-center space-x-4 text-sm text-gray-500">
+                                  <h4 className="font-medium text-foreground">{doc.name}</h4>
+                                  <div className="flex items-center space-x-3 text-xs text-muted-foreground mt-1">
                                     <span>{formatFileSize(doc.size)}</span>
-                                    <span>{doc.chunks.length} 个文档块</span>
+                                    <span>•</span>
+                                    <span>{doc.chunks.length} 个块</span>
+                                    <span>•</span>
                                     <span>{formatDate(doc.uploadedAt)}</span>
                                   </div>
                                 </div>
                               </div>
                               <div className="flex items-center space-x-2">
-                                <Badge variant="outline">
-                                  {doc.type || '未知格式'}
+                                <Badge variant="secondary" className="font-normal">
+                                  {doc.type || '未知'}
                                 </Badge>
                                 <Button
-                                  variant="destructive"
-                                  size="sm"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                                   onClick={() => handleDeleteDocument(doc.id)}
                                 >
                                   <Trash2 className="h-4 w-4" />

@@ -8,8 +8,8 @@ import TopBar from '@/components/TopBar';
 import ChatHistory from '@/components/ChatHistory';
 import { RAGService } from '@/lib/rag-service';
 import { Document } from '@/types/knowledge';
-import { toast } from 'sonner';
 import { Toaster } from '@/components/ui/sonner';
+import { toast } from 'sonner';
 
 interface Message {
   id: string;
@@ -243,7 +243,7 @@ export default function Index() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white flex flex-col">
+    <div className="h-screen bg-background text-foreground flex flex-col overflow-hidden font-sans">
       {/* 全局 Toast 容器 */}
       <Toaster />
 
@@ -257,7 +257,7 @@ export default function Index() {
       />
 
       {/* 主要内容区域 */}
-      <div className="flex-1 flex">
+      <div className="flex-1 flex overflow-hidden">
         {/* 左侧聊天记录栏 */}
         <ChatHistory
           currentChatId={currentChatId}
@@ -268,49 +268,53 @@ export default function Index() {
         />
 
         {/* 聊天区域 */}
-        <div className="flex-1 flex flex-col">
-          {/* 聊天标题栏 */}
-          <div className="bg-gray-800 border-b border-gray-700 px-6 py-4 flex items-center justify-between">
+        <div className="flex-1 flex flex-col relative bg-secondary/20">
+          {/* 聊天标题栏 - 磨砂效果 */}
+          <div className="bg-background/80 backdrop-blur-md border-b px-6 py-4 flex items-center justify-between sticky top-0 z-10 shadow-sm">
             <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center">
+              <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center text-primary border border-primary/20">
                 <Bot className="w-6 h-6" />
               </div>
               <div>
-                <h1 className="text-xl font-semibold">教务小数</h1>
-                <p className="text-sm text-gray-400">中国人民大学智能教务助手</p>
+                <h1 className="text-lg font-bold text-foreground tracking-tight">教务小数</h1>
+                <p className="text-xs text-muted-foreground font-medium">中国人民大学智能教务助手</p>
               </div>
             </div>
-            <div className="flex items-center space-x-2">
-              <Badge variant="secondary" className="bg-green-600">
+            <div className="flex items-center space-x-3">
+              <Badge variant="outline" className={`
+                px-3 py-1 rounded-full border-0 font-medium
+                ${selectedKnowledgeBase === 'education' ? 'bg-primary/10 text-primary' : 
+                  selectedKnowledgeBase === 'course' ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600'}
+              `}>
                 {selectedKnowledgeBase === 'education' ? '教务知识库' : 
                  selectedKnowledgeBase === 'course' ? '课程知识库' : '通用知识库'}
               </Badge>
               <Button
-                variant="outline"
+                variant="ghost"
                 size="sm"
                 onClick={handleClearChat}
-                className="bg-gray-700 border-gray-600 hover:bg-gray-600"
+                className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
               >
                 <Trash2 className="w-4 h-4 mr-2" />
-                清空聊天
+                清空
               </Button>
             </div>
           </div>
 
           {/* 消息列表 */}
-          <ScrollArea className="flex-1 p-6">
-            <div className="space-y-4 max-w-4xl mx-auto">
+          <ScrollArea className="flex-1 px-4 md:px-8 py-6">
+            <div className="space-y-6 max-w-4xl mx-auto pb-6">
               {currentMessages.map((message) => (
                 <div
                   key={message.id}
-                  className={`flex items-start space-x-3 ${
+                  className={`flex items-start space-x-3 group ${
                     message.sender === 'user' ? 'flex-row-reverse space-x-reverse' : ''
                   }`}
                 >
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 shadow-sm ${
                     message.sender === 'user' 
-                      ? 'bg-blue-600' 
-                      : 'bg-gray-700'
+                      ? 'bg-primary text-primary-foreground' 
+                      : 'bg-white text-primary border border-gray-100'
                   }`}>
                     {message.sender === 'user' ? (
                       <User className="w-5 h-5" />
@@ -322,58 +326,58 @@ export default function Index() {
                   <div className={`flex-1 max-w-3xl ${
                     message.sender === 'user' ? 'text-right' : ''
                   }`}>
-                    <div className={`inline-block p-4 rounded-lg ${
+                    <div className={`inline-block p-4 rounded-2xl shadow-sm text-left ${
                       message.sender === 'user'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-gray-800 border border-gray-700'
+                        ? 'bg-primary text-primary-foreground rounded-tr-none'
+                        : 'bg-card border border-border/50 text-foreground rounded-tl-none'
                     }`}>
                       {message.isLoading ? (
                         <div className="flex items-center space-x-2">
-                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <Loader2 className="w-4 h-4 animate-spin opacity-70" />
                           <span>{message.content}</span>
                         </div>
                       ) : (
-                        <div className="whitespace-pre-wrap">{message.content}</div>
+                        <div className="whitespace-pre-wrap leading-relaxed">{message.content}</div>
                       )}
                     </div>
 
                     {/* 时间 + 反馈 */}
-                    <div className={`flex items-center mt-1 ${
+                    <div className={`flex items-center mt-1.5 ${
                       message.sender === 'user' ? 'justify-end' : 'justify-start'
                     }`}>
-                      <div className={`text-xs text-gray-500 ${
+                      <div className={`text-[10px] text-muted-foreground ${
                         message.sender === 'bot' ? 'mr-2' : 'ml-2'
                       }`}>
                         {formatTime(message.timestamp)}
                       </div>
 
                       {message.sender === 'bot' && !message.isLoading && (
-                        <div className="flex items-center space-x-1">
+                        <div className="flex items-center space-x-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                           <Button
-                            aria-label="点赞此回复"
+                            aria-label="点赞"
                             variant="ghost"
-                            size="sm"
+                            size="icon"
                             onClick={() => handleMessageFeedback(message.id, 'like')}
-                            className={`h-7 w-7 p-0 rounded-full ${
+                            className={`h-6 w-6 rounded-full hover:bg-green-50 ${
                               message.feedback === 'like' 
-                                ? 'text-green-400 hover:text-green-300' 
-                                : 'text-gray-400 hover:text-green-400'
+                                ? 'text-green-600 bg-green-50' 
+                                : 'text-muted-foreground hover:text-green-600'
                             }`}
                           >
-                            <ThumbsUp className="w-4 h-4" />
+                            <ThumbsUp className="w-3.5 h-3.5" />
                           </Button>
                           <Button
-                            aria-label="点踩此回复"
+                            aria-label="点踩"
                             variant="ghost"
-                            size="sm"
+                            size="icon"
                             onClick={() => handleMessageFeedback(message.id, 'dislike')}
-                            className={`h-7 w-7 p-0 rounded-full ${
+                            className={`h-6 w-6 rounded-full hover:bg-red-50 ${
                               message.feedback === 'dislike' 
-                                ? 'text-red-400 hover:text-red-300' 
-                                : 'text-gray-400 hover:text-red-400'
+                                ? 'text-red-600 bg-red-50' 
+                                : 'text-muted-foreground hover:text-red-600'
                             }`}
                           >
-                            <ThumbsDown className="w-4 h-4" />
+                            <ThumbsDown className="w-3.5 h-3.5" />
                           </Button>
                         </div>
                       )}
@@ -385,42 +389,50 @@ export default function Index() {
             </div>
           </ScrollArea>
 
-          {/* 输入区域 */}
-          <div className="bg-gray-800 border-t border-gray-700 p-6">
-            <div className="max-w-4xl mx-auto">
-              <div className="flex space-x-4">
-                <div className="flex-1">
-                  <Input
-                    ref={inputRef}
-                    value={inputValue}
-                    onChange={(e) => setInputValue(e.target.value)}
-                    onKeyPress={handleKeyPress}
-                    placeholder="请输入您的问题..."
-                    disabled={isLoading}
-                    className="bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:border-blue-500"
-                  />
-                </div>
+          {/* 输入区域 - 悬浮效果 */}
+          <div className="p-6 bg-gradient-to-t from-background via-background to-transparent sticky bottom-0 z-10">
+            <div className="max-w-4xl mx-auto relative group">
+              <div className="absolute -inset-0.5 bg-gradient-to-r from-primary/20 to-blue-500/20 rounded-2xl blur opacity-30 group-hover:opacity-60 transition duration-500"></div>
+              <div className="relative bg-card rounded-2xl shadow-lg border border-border/50 flex items-center p-1.5 focus-within:ring-1 focus-within:ring-primary/30 transition-shadow">
+                <Input
+                  ref={inputRef}
+                  value={inputValue}
+                  onChange={(e) => setInputValue(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                  placeholder="请输入您关于教务、课程或考试的问题..."
+                  disabled={isLoading}
+                  className="flex-1 border-0 focus-visible:ring-0 shadow-none bg-transparent py-6 px-4 text-base placeholder:text-muted-foreground/50"
+                />
                 <Button
                   onClick={handleSendMessage}
                   disabled={!inputValue.trim() || isLoading}
-                  className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
+                  size="icon"
+                  className={`h-10 w-10 rounded-xl transition-all duration-300 mr-1 ${
+                    !inputValue.trim() || isLoading 
+                      ? 'bg-muted text-muted-foreground' 
+                      : 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-md hover:shadow-lg scale-100 active:scale-95'
+                  }`}
                 >
                   {isLoading ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <Loader2 className="w-5 h-5 animate-spin" />
                   ) : (
-                    <Send className="w-4 h-4" />
+                    <Send className="w-5 h-5" />
                   )}
                 </Button>
               </div>
               
               {/* 提示信息 */}
-              <div className="mt-3 text-xs text-gray-500 text-center">
-                <p>
-                  当前使用 <span className="text-blue-400">{selectedModel}</span> 模型
-                  {documents.length > 0 && (
-                    <span> • 已加载 <span className="text-green-400">{documents.length}</span> 个文档</span>
-                  )}
-                </p>
+              <div className="mt-2.5 flex justify-center items-center gap-2 text-[10px] text-muted-foreground font-medium opacity-70">
+                <span className="flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                  {selectedModel}
+                </span>
+                {documents.length > 0 && (
+                  <>
+                    <span>•</span>
+                    <span>已加载 {documents.length} 个文档</span>
+                  </>
+                )}
               </div>
             </div>
           </div>
