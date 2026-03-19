@@ -6,6 +6,8 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { Bot, GraduationCap, ArrowRight, Loader2 } from 'lucide-react';
+import { apiClient } from '@/lib/api';
+import { setAuthSession } from '@/lib/auth';
 
 export default function Login() {
   const [username, setUsername] = useState('');
@@ -23,31 +25,19 @@ export default function Login() {
 
     setIsLoading(true);
 
-    // 模拟登录请求
-    setTimeout(() => {
+    try {
+      const response = await apiClient.login(username.trim(), password.trim());
+      setAuthSession(response.token, response.user);
       setIsLoading(false);
-      
-      // 模拟验证逻辑：这里允许任意非空输入登录
-      // 实际项目中应调用后端API
-      
-      const userInfo = {
-        username: username,
-        token: 'mock-jwt-token-' + Date.now(),
-        role: 'student',
-        loginTime: new Date().toISOString()
-      };
-
-      // 保存登录状态
-      localStorage.setItem('user_info', JSON.stringify(userInfo));
-      localStorage.setItem('is_logged_in', 'true');
 
       toast.success('登录成功', {
-        description: '欢迎回来，' + username
+        description: '欢迎回来，' + response.user.username
       });
-
-      // 跳转到主页
       navigate('/');
-    }, 1500);
+    } catch (error) {
+      setIsLoading(false);
+      toast.error(error instanceof Error ? error.message : '登录失败');
+    }
   };
 
   return (

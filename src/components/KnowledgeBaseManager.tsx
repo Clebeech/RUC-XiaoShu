@@ -4,10 +4,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Upload, FileText, Trash2, Database, RefreshCw } from 'lucide-react';
-import { DocumentParser } from '@/lib/document-parser';
-import { vectorStore } from '@/lib/vector-store';
-import { RAGService } from '@/lib/rag-service';
 import { Document } from '@/types/knowledge';
+import { apiClient, BackendDocument } from '@/lib/api';
+import { toast } from 'sonner';
 
 interface KnowledgeBaseManagerProps {
   knowledgeBaseId: string;
@@ -23,18 +22,38 @@ export default function KnowledgeBaseManager({
   const [isOpen, setIsOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 刷新文档列表
-  const refreshDocuments = () => {
-    const stats = RAGService.getKnowledgeBaseStats();
-    setDocuments(stats.documents);
-    onDocumentsChange(stats.documents);
-    console.log('📊 刷新知识库统计:', stats);
+  const mapDocument = (document: BackendDocument): Document => ({
+    id: String(document.id),
+    name: document.name,
+    content: '',
+    chunks: Array.from({ length: document.chunk_count }).map((_, index) => ({
+      id: `${document.id}-${index}`,
+      documentId: String(document.id),
+      content: '',
+      metadata: {
+        startIndex: 0,
+        endIndex: 0,
+      },
+    })),
+    uploadedAt: new Date(document.uploaded_at),
+    size: document.size,
+    type: document.mime_type,
+  });
+
+  const refreshDocuments = async () => {
+    try {
+      const backendDocuments = await apiClient.listDocuments(knowledgeBaseId);
+      const mapped = backendDocuments.map(mapDocument);
+      setDocuments(mapped);
+      onDocumentsChange(mapped);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '获取文档列表失败');
+    }
   };
 
-  // 组件挂载时刷新
   React.useEffect(() => {
-    refreshDocuments();
-  }, []);
+    void refreshDocuments();
+  }, [knowledgeBaseId]);
 
   // 处理文件上传
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -45,52 +64,44 @@ export default function KnowledgeBaseManager({
     
     try {
       for (const file of Array.from(files)) {
-        console.log(`📤 开始上传文件: ${file.name}`);
-        
-        // 解析文档
-        const document = await DocumentParser.parseFile(file);
-        console.log(`✅ 文档解析完成: ${document.name}`);
-        
-        // 添加到向量存储
-        await vectorStore.addDocument(document);
-        console.log(`🎯 文档已添加到向量存储: ${document.name}`);
+        await apiClient.uploadDocument(knowledgeBaseId, file);
       }
-      
-      // 刷新文档列表
-      refreshDocuments();
-      
-      // 清空文件输入
+
+      await refreshDocuments();
+
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
-      
-      console.log('🎉 所有文件上传完成');
-      
+      toast.success('文档上传完成');
     } catch (error) {
-      console.error('❌ 文件上传失败:', error);
-      alert(`文件上传失败: ${error instanceof Error ? error.message : '未知错误'}`);
+      toast.error(error instanceof Error ? error.message : '文件上传失败');
     } finally {
       setUploading(false);
     }
   };
 
-  // 删除文档
-  const handleDeleteDocument = (documentId: string) => {
+  const handleDeleteDocument = async (documentId: string) => {
     const document = documents.find(doc => doc.id === documentId);
     if (document && confirm(`确定要删除文档 "${document.name}" 吗？`)) {
-      console.log(`🗑️ 删除文档: ${document.name}`);
-      vectorStore.removeDocument(documentId);
-      refreshDocuments();
+      try {
+        await apiClient.deleteDocument(Number(documentId));
+        await refreshDocuments();
+        toast.success('文档已删除');
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : '删除文档失败');
+      }
     }
   };
 
-  // 清空所有文档
-  const handleClearAll = () => {
+  const handleClearAll = async () => {
     if (confirm('确定要清空所有知识库文档吗？此操作不可撤销！')) {
-      console.log('🧹 清空所有知识库文档');
-      vectorStore.clear();
-      refreshDocuments();
-      alert('知识库已清空！');
+      try {
+        await Promise.all(documents.map((document) => apiClient.deleteDocument(Number(document.id))));
+        await refreshDocuments();
+        toast.success('知识库已清空');
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : '清空知识库失败');
+      }
     }
   };
 
@@ -108,7 +119,7 @@ export default function KnowledgeBaseManager({
     return new Date(date).toLocaleString('zh-CN');
   };
 
-  const stats = RAGService.getKnowledgeBaseStats();
+  const totalChunks = documents.reduce((sum, doc) => sum + doc.chunks.length, 0);
 
   return (
     <>
@@ -152,13 +163,13 @@ export default function KnowledgeBaseManager({
               <div className="grid grid-cols-3 gap-4 mb-6">
                 <Card className="bg-muted/20 border-border/50">
                   <CardContent className="p-4 text-center">
-                    <div className="text-2xl font-bold text-primary">{stats.totalDocuments}</div>
+                    <div className="text-2xl font-bold text-primary">{documents.length}</div>
                     <div className="text-sm text-muted-foreground">文档总数</div>
                   </CardContent>
                 </Card>
                 <Card className="bg-muted/20 border-border/50">
                   <CardContent className="p-4 text-center">
-                    <div className="text-2xl font-bold text-blue-600">{stats.totalChunks}</div>
+                    <div className="text-2xl font-bold text-blue-600">{totalChunks}</div>
                     <div className="text-sm text-muted-foreground">文档块数</div>
                   </CardContent>
                 </Card>

@@ -20,6 +20,7 @@ import { Settings, FileText, Database, Sparkles, HelpCircle, Trash2, Info, LogOu
 import KnowledgeBaseManager from './KnowledgeBaseManager';
 import { Document } from '@/types/knowledge';
 import { toast } from 'sonner';
+import { clearAuthSession } from '@/lib/auth';
 
 interface TopBarProps {
   selectedKnowledgeBase: string;
@@ -40,8 +41,8 @@ export default function TopBar({
   const [isHelpOpen, setIsHelpOpen] = useState(false);
 
   const handleClearCache = () => {
-    if (confirm('确定要清除所有本地缓存吗？这将删除所有聊天记录和设置。页面将重新加载。')) {
-      localStorage.clear();
+    if (confirm('确定要清除本地登录态和界面缓存吗？页面将重新加载。')) {
+      sessionStorage.clear();
       toast.success('缓存已清除', { description: '页面即将刷新...' });
       setTimeout(() => {
         window.location.reload();
@@ -51,11 +52,10 @@ export default function TopBar({
 
   const handleLogout = () => {
     if (confirm('确定要退出登录吗？')) {
-      localStorage.removeItem('is_logged_in');
-      localStorage.removeItem('user_info');
+      clearAuthSession();
       toast.success('已退出登录');
       setTimeout(() => {
-        window.location.reload();
+        window.location.href = '/login';
       }, 500);
     }
   };

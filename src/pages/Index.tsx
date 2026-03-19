@@ -5,11 +5,12 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Send, User, Bot, Loader2, Trash2, ThumbsUp, ThumbsDown } from 'lucide-react';
 import TopBar from '@/components/TopBar';
-import ChatHistory from '@/components/ChatHistory';
-import { RAGService } from '@/lib/rag-service';
+import ChatHistory, { ChatSessionItem } from '@/components/ChatHistory';
 import { Document } from '@/types/knowledge';
 import { Toaster } from '@/components/ui/sonner';
 import { toast } from 'sonner';
+import { motion, AnimatePresence } from 'framer-motion';
+import { apiClient, BackendChat } from '@/lib/api';
 
 interface Message {
   id: string;
@@ -20,26 +21,10 @@ interface Message {
   feedback?: 'like' | 'dislike' | null;
 }
 
-interface SavedMessage {
-  id: string;
-  content: string;
-  sender: 'user' | 'bot';
-  timestamp: string;
-  isLoading?: boolean;
-  feedback?: 'like' | 'dislike' | null;
-}
-
-interface ChatData {
-  [chatId: string]: Message[];
-}
-
-interface SavedChatData {
-  [chatId: string]: SavedMessage[];
-}
-
 export default function Index() {
-  const [allChats, setAllChats] = useState<ChatData>({});
-  const [currentChatId, setCurrentChatId] = useState('current');
+  const [chats, setChats] = useState<BackendChat[]>([]);
+  const [currentChatId, setCurrentChatId] = useState<string | null>(null);
+  const [draftMessages, setDraftMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [selectedKnowledgeBase, setSelectedKnowledgeBase] = useState('education');
@@ -57,44 +42,64 @@ export default function Index() {
     timestamp: new Date()
   });
 
-  // 初始化聊天数据
   useEffect(() => {
-    const savedChats = localStorage.getItem('allChats');
-    if (savedChats) {
-      try {
-        const parsedChats: SavedChatData = JSON.parse(savedChats);
-        const convertedChats: ChatData = {};
-        Object.keys(parsedChats).forEach(chatId => {
-          convertedChats[chatId] = parsedChats[chatId].map((msg) => ({
-            ...msg,
-            timestamp: new Date(msg.timestamp)
-          }));
-        });
-        setAllChats(convertedChats);
-      } catch (error) {
-        console.error('Failed to parse saved chats:', error);
-        const defaultChats: ChatData = {
-          'current': [getDefaultMessage()]
-        };
-        setAllChats(defaultChats);
-      }
-    } else {
-      const defaultChats: ChatData = {
-        'current': [getDefaultMessage()]
-      };
-      setAllChats(defaultChats);
-    }
+    setDraftMessages([getDefaultMessage()]);
+    void refreshChats();
   }, []);
 
-  // 保存聊天数据到localStorage
-  useEffect(() => {
-    if (Object.keys(allChats).length > 0) {
-      localStorage.setItem('allChats', JSON.stringify(allChats));
-    }
-  }, [allChats]);
+  const mapBackendChatMessages = (chat: BackendChat): Message[] => (
+    chat.messages.map((message) => ({
+      id: String(message.id),
+      content: message.content,
+      sender: message.role === 'assistant' ? 'bot' : 'user',
+      timestamp: new Date(message.created_at),
+      feedback: message.feedback ?? null,
+    }))
+  );
 
-  // 获取当前聊天的消息
-  const currentMessages = allChats[currentChatId] || [];
+  const refreshChats = async (preferredChatId?: number) => {
+    try {
+      const backendChats = await apiClient.listChats();
+      setChats(backendChats);
+
+      if (typeof preferredChatId === 'number') {
+        setCurrentChatId(String(preferredChatId));
+        return;
+      }
+
+      setCurrentChatId((prev) => {
+        if (prev && backendChats.some((chat) => String(chat.id) === prev)) {
+          return prev;
+        }
+        return null;
+      });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '加载聊天记录失败');
+    }
+  };
+
+  const currentMessages = currentChatId
+    ? mapBackendChatMessages(
+        chats.find((chat) => String(chat.id) === currentChatId) ?? {
+          id: 0,
+          title: '',
+          knowledge_base_name: selectedKnowledgeBase,
+          created_at: new Date().toISOString(),
+          messages: [],
+        }
+      )
+    : draftMessages;
+
+  const chatSessions: ChatSessionItem[] = chats.map((chat) => {
+    const lastMessage = chat.messages[chat.messages.length - 1];
+    return {
+      id: String(chat.id),
+      title: chat.title,
+      lastMessage: lastMessage?.content || '新对话',
+      timestamp: new Date(lastMessage?.created_at || chat.created_at),
+      messageCount: chat.messages.length,
+    };
+  });
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -122,39 +127,70 @@ export default function Index() {
       isLoading: true
     };
 
-    setAllChats(prev => ({
-      ...prev,
-      [currentChatId]: [...(prev[currentChatId] || []), userMessage, loadingMessage]
-    }));
+    if (currentChatId) {
+      setChats((prev) => prev.map((chat) => (
+        String(chat.id) === currentChatId
+          ? {
+              ...chat,
+              messages: [
+                ...chat.messages,
+                {
+                  id: Number(userMessage.id),
+                  role: 'user',
+                  content: userMessage.content,
+                  created_at: userMessage.timestamp.toISOString(),
+                },
+                {
+                  id: Number(loadingMessage.id),
+                  role: 'assistant',
+                  content: loadingMessage.content,
+                  created_at: loadingMessage.timestamp.toISOString(),
+                },
+              ],
+            }
+          : chat
+      )));
+    } else {
+      setDraftMessages((prev) => [...prev, userMessage, loadingMessage]);
+    }
     
     setInputValue('');
     setIsLoading(true);
 
     try {
-      const response = await RAGService.query(userMessage.content, selectedKnowledgeBase);
+      const response = await apiClient.query(
+        userMessage.content,
+        selectedKnowledgeBase,
+        selectedModel,
+        currentChatId ? Number(currentChatId) : undefined
+      );
 
-      setAllChats(prev => ({
-        ...prev,
-        [currentChatId]: prev[currentChatId].map(msg => 
-          msg.id === loadingMessage.id 
-            ? { ...msg, content: response, isLoading: false }
-            : msg
-        )
-      }));
+      await refreshChats(response.chat_id);
+      setDraftMessages([getDefaultMessage()]);
+      toast.success(response.citations.length > 0 ? '回答已更新并附带引用' : '回答已更新');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '发生未知错误';
-      setAllChats(prev => ({
-        ...prev,
-        [currentChatId]: prev[currentChatId].map(msg => 
-          msg.id === loadingMessage.id 
-            ? { 
-                ...msg, 
-                content: `抱歉，发生了错误：${errorMessage}\n\n这可能是由于：\n1. 网络连接问题\n2. API服务暂时不可用\n3. 知识库处理错误\n\n请稍后重试，或联系管理员检查配置。`, 
-                isLoading: false 
+      const failureMessage = `抱歉，发生了错误：${errorMessage}\n\n请稍后重试，或联系管理员检查后端配置。`;
+      if (currentChatId) {
+        setChats((prev) => prev.map((chat) => (
+          String(chat.id) === currentChatId
+            ? {
+                ...chat,
+                messages: chat.messages.map((message) => (
+                  String(message.id) === loadingMessage.id
+                    ? { ...message, content: failureMessage }
+                    : message
+                )),
               }
-            : msg
-        )
-      }));
+            : chat
+        )));
+      } else {
+        setDraftMessages((prev) => prev.map((message) => (
+          message.id === loadingMessage.id
+            ? { ...message, content: failureMessage, isLoading: false }
+            : message
+        )));
+      }
     } finally {
       setIsLoading(false);
     }
@@ -168,71 +204,74 @@ export default function Index() {
   };
 
   const handleClearChat = () => {
-    if (confirm('确定要清空当前聊天记录吗？此操作不可撤销。')) {
-      setAllChats(prev => ({
-        ...prev,
-        [currentChatId]: [getDefaultMessage()]
-      }));
+    if (!confirm('确定要清空当前聊天记录吗？此操作不可撤销。')) return;
+    if (!currentChatId) {
+      setDraftMessages([getDefaultMessage()]);
+      return;
     }
+    void handleDeleteChat(currentChatId);
   };
 
   const handleNewChat = () => {
-    const newChatId = `chat-${Date.now()}`;
-    setAllChats(prev => ({
-      ...prev,
-      [newChatId]: [getDefaultMessage()]
-    }));
-    setCurrentChatId(newChatId);
+    setCurrentChatId(null);
+    setDraftMessages([getDefaultMessage()]);
   };
 
   const handleChatSelect = (chatId: string) => {
     setCurrentChatId(chatId);
-    if (!allChats[chatId]) {
-      setAllChats(prev => ({
-        ...prev,
-        [chatId]: [getDefaultMessage()]
-      }));
-    }
   };
 
-  const handleDeleteChat = (chatId: string) => {
-    setAllChats(prev => {
-      const newChats = { ...prev };
-      delete newChats[chatId];
-      return newChats;
-    });
-    if (chatId === currentChatId) {
-      const remainingChatIds = Object.keys(allChats).filter(id => id !== chatId);
-      if (remainingChatIds.length > 0) {
-        setCurrentChatId(remainingChatIds[0]);
-      } else {
-        handleNewChat();
+  const handleDeleteChat = async (chatId: string) => {
+    try {
+      await apiClient.deleteChat(Number(chatId));
+      const nextChats = chats.filter((chat) => String(chat.id) !== chatId);
+      setChats(nextChats);
+      if (chatId === currentChatId) {
+        setCurrentChatId(nextChats[0] ? String(nextChats[0].id) : null);
+        if (nextChats.length === 0) {
+          setDraftMessages([getDefaultMessage()]);
+        }
       }
+      toast.success('对话已删除');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '删除对话失败');
     }
   };
 
   const handleMessageFeedback = (messageId: string, feedback: 'like' | 'dislike') => {
-    setAllChats(prev => {
-      const updated = {
-        ...prev,
-        [currentChatId]: prev[currentChatId].map(msg => 
-          msg.id === messageId 
-            ? { ...msg, feedback: msg.feedback === feedback ? null : feedback }
-            : msg
-        )
-      };
-      const target = updated[currentChatId].find(m => m.id === messageId);
-      if (target) {
-        if (target.feedback === 'like') {
-          toast.success('已反馈：赞');
-        } else if (target.feedback === 'dislike') {
-          toast('已反馈：踩', { description: '感谢您的反馈' });
-        } else {
-          toast('已取消反馈');
-        }
-      }
-      return updated;
-    });
+    if (currentChatId) {
+      setChats((prev) => prev.map((chat) => (
+        String(chat.id) === currentChatId
+          ? {
+              ...chat,
+              messages: chat.messages.map((message) => (
+                String(message.id) === messageId
+                  ? {
+                      ...message,
+                      feedback: message.feedback === feedback ? null : feedback,
+                    }
+                  : message
+              )),
+            }
+          : chat
+      )));
+    } else {
+      setDraftMessages((prev) => prev.map((message) => (
+        message.id === messageId
+          ? { ...message, feedback: message.feedback === feedback ? null : feedback }
+          : message
+      )));
+    }
+
+    const target = currentMessages.find((message) => message.id === messageId);
+    const nextFeedback = target?.feedback === feedback ? null : feedback;
+    if (nextFeedback === 'like') {
+      toast.success('已反馈：赞');
+    } else if (nextFeedback === 'dislike') {
+      toast('已反馈：踩', { description: '感谢您的反馈' });
+    } else {
+      toast('已取消反馈');
+    }
   };
 
   const formatTime = (date: Date) => {
@@ -261,7 +300,7 @@ export default function Index() {
         {/* 左侧聊天记录栏 */}
         <ChatHistory
           currentChatId={currentChatId}
-          messages={currentMessages}
+          chatSessions={chatSessions}
           onChatSelect={handleChatSelect}
           onNewChat={handleNewChat}
           onDeleteChat={handleDeleteChat}
@@ -304,14 +343,18 @@ export default function Index() {
           {/* 消息列表 */}
           <ScrollArea className="flex-1 px-4 md:px-8 py-6">
             <div className="space-y-6 max-w-4xl mx-auto pb-6">
+              <AnimatePresence initial={false}>
               {currentMessages.map((message) => (
-                <div
+                <motion.div
                   key={message.id}
+                  initial={{ opacity: 0, y: 20, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  transition={{ duration: 0.3, ease: "easeOut" }}
                   className={`flex items-start space-x-3 group ${
                     message.sender === 'user' ? 'flex-row-reverse space-x-reverse' : ''
                   }`}
                 >
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 shadow-sm ${
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 shadow-sm transition-transform hover:scale-110 ${
                     message.sender === 'user' 
                       ? 'bg-primary text-primary-foreground' 
                       : 'bg-white text-primary border border-gray-100'
@@ -326,11 +369,16 @@ export default function Index() {
                   <div className={`flex-1 max-w-3xl ${
                     message.sender === 'user' ? 'text-right' : ''
                   }`}>
-                    <div className={`inline-block p-4 rounded-2xl shadow-sm text-left ${
+                    <div className={`inline-block p-4 rounded-2xl shadow-sm text-left relative overflow-hidden ${
                       message.sender === 'user'
                         ? 'bg-primary text-primary-foreground rounded-tr-none'
                         : 'bg-card border border-border/50 text-foreground rounded-tl-none'
                     }`}>
+                      {/* 微光效果 */}
+                      {message.isLoading && (
+                        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent translate-x-[-100%] animate-[shimmer_1.5s_infinite]" />
+                      )}
+                      
                       {message.isLoading ? (
                         <div className="flex items-center space-x-2">
                           <Loader2 className="w-4 h-4 animate-spin opacity-70" />
@@ -342,7 +390,11 @@ export default function Index() {
                     </div>
 
                     {/* 时间 + 反馈 */}
-                    <div className={`flex items-center mt-1.5 ${
+                    <motion.div 
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ delay: 0.2 }}
+                      className={`flex items-center mt-1.5 ${
                       message.sender === 'user' ? 'justify-end' : 'justify-start'
                     }`}>
                       <div className={`text-[10px] text-muted-foreground ${
@@ -381,19 +433,25 @@ export default function Index() {
                           </Button>
                         </div>
                       )}
-                    </div>
+                    </motion.div>
                   </div>
-                </div>
+                </motion.div>
               ))}
+              </AnimatePresence>
               <div ref={messagesEndRef} />
             </div>
           </ScrollArea>
 
           {/* 输入区域 - 悬浮效果 */}
           <div className="p-6 bg-gradient-to-t from-background via-background to-transparent sticky bottom-0 z-10">
-            <div className="max-w-4xl mx-auto relative group">
-              <div className="absolute -inset-0.5 bg-gradient-to-r from-primary/20 to-blue-500/20 rounded-2xl blur opacity-30 group-hover:opacity-60 transition duration-500"></div>
-              <div className="relative bg-card rounded-2xl shadow-lg border border-border/50 flex items-center p-1.5 focus-within:ring-1 focus-within:ring-primary/30 transition-shadow">
+            <motion.div 
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: 0.5 }}
+              className="max-w-4xl mx-auto relative group"
+            >
+              <div className="absolute -inset-0.5 bg-gradient-to-r from-primary/30 to-blue-500/30 rounded-2xl blur opacity-20 group-hover:opacity-100 transition duration-700 animate-pulse"></div>
+              <div className="relative bg-card rounded-2xl shadow-xl border border-border/50 flex items-center p-1.5 focus-within:ring-2 focus-within:ring-primary/20 transition-all duration-300">
                 <Input
                   ref={inputRef}
                   value={inputValue}
@@ -434,7 +492,7 @@ export default function Index() {
                   </>
                 )}
               </div>
-            </div>
+            </motion.div>
           </div>
         </div>
       </div>

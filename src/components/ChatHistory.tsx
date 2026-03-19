@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -16,33 +16,17 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
 
-interface ChatSession {
+export interface ChatSessionItem {
   id: string;
   title: string;
   lastMessage: string;
   timestamp: Date;
-  messageCount: number;
-}
-
-interface Message {
-  id:string;
-  content: string;
-  sender: 'user' | 'bot';
-  timestamp: Date;
-  isLoading?: boolean;
-}
-
-interface SavedChatSession {
-  id: string;
-  title: string;
-  lastMessage: string;
-  timestamp: string;
   messageCount: number;
 }
 
 interface ChatHistoryProps {
-  currentChatId: string;
-  messages: Message[];
+  currentChatId: string | null;
+  chatSessions: ChatSessionItem[];
   onChatSelect: (chatId: string) => void;
   onNewChat: () => void;
   onDeleteChat: (chatId: string) => void;
@@ -50,89 +34,23 @@ interface ChatHistoryProps {
 
 export default function ChatHistory({ 
   currentChatId, 
-  messages,
+  chatSessions,
   onChatSelect, 
   onNewChat, 
   onDeleteChat 
 }: ChatHistoryProps) {
-  const [chatSessions, setChatSessions] = useState<ChatSession[]>([]);
   const { toast } = useToast();
   const [feedbackText, setFeedbackText] = useState("");
   const [isFeedbackDialogOpen, setIsFeedbackDialogOpen] = useState(false);
 
-  useEffect(() => {
-    const savedChats = localStorage.getItem('chatSessions');
-    if (savedChats) {
-      try {
-        const parsedChats: SavedChatSession[] = JSON.parse(savedChats);
-        setChatSessions(parsedChats.map(chat => ({ ...chat, timestamp: new Date(chat.timestamp) })));
-      } catch (e) {
-        setChatSessions([]);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    if (messages.length > 0) {
-      setChatSessions(prev => {
-        const updated = prev.map(chat => {
-          if (chat.id === currentChatId) {
-            const lastUserMessage = messages.filter(m => m.sender === 'user').pop();
-            const lastBotMessage = messages.filter(m => m.sender === 'bot' && !m.isLoading).pop();
-            const lastMessage = lastUserMessage || lastBotMessage;
-            
-            return {
-              ...chat,
-              lastMessage: lastMessage ? lastMessage.content : chat.lastMessage,
-              messageCount: messages.length,
-              timestamp: new Date(),
-              title: generateChatTitle(messages)
-            };
-          }
-          return chat;
-        });
-        localStorage.setItem('chatSessions', JSON.stringify(updated));
-        return updated;
-      });
-    }
-  }, [messages, currentChatId]);
-
-  const generateChatTitle = (msgs: Message[]): string => {
-    const userMessage = msgs.find(m => m.sender === 'user');
-    return userMessage ? userMessage.content.substring(0, 20) + (userMessage.content.length > 20 ? '...' : '') : '新对话';
-  };
-
   const handleNewChat = () => {
-    const newChatId = `chat-${Date.now()}`;
-    const newChat: ChatSession = {
-      id: newChatId,
-      title: '新对话',
-      lastMessage: '您好！我是教务小数...',
-      timestamp: new Date(),
-      messageCount: 1
-    };
-    setChatSessions(prev => {
-      const updated = [newChat, ...prev];
-      localStorage.setItem('chatSessions', JSON.stringify(updated));
-      return updated;
-    });
     onNewChat();
   };
 
   const handleDeleteChat = (chatId: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
-    if (chatSessions.length <= 1) {
-      toast({ title: '操作失败', description: '至少需要保留一个对话。', variant: 'destructive' });
-      return;
-    }
     if (confirm('确定要删除这个对话吗？此操作不可撤销。')) {
-      const updatedSessions = chatSessions.filter(chat => chat.id !== chatId);
-      setChatSessions(updatedSessions);
-      localStorage.setItem('chatSessions', JSON.stringify(updatedSessions));
       onDeleteChat(chatId);
-      if (chatId === currentChatId) {
-        onChatSelect(updatedSessions[0]?.id || '');
-      }
     }
   };
 
@@ -184,14 +102,17 @@ export default function ChatHistory({
           {chatSessions.map((chat) => (
             <Card
               key={chat.id}
-              className={`cursor-pointer transition-all duration-200 border-0 shadow-none ${
+              className={`cursor-pointer transition-all duration-200 border-0 shadow-none relative overflow-hidden group/item ${
                 currentChatId === chat.id
                   ? 'bg-background shadow-sm ring-1 ring-border'
-                  : 'bg-transparent hover:bg-background/50 text-muted-foreground'
+                  : 'bg-transparent hover:bg-background/50 text-muted-foreground hover:translate-x-1'
               }`}
               onClick={() => onChatSelect(chat.id)}
             >
-              <CardContent className="p-3">
+              {currentChatId === chat.id && (
+                <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary" />
+              )}
+              <CardContent className="p-3 pl-4">
                 <div className="grid grid-cols-[1fr_auto] items-start gap-3">
                   <div className="min-w-0">
                     <h3 className={`text-sm font-medium truncate transition-colors ${

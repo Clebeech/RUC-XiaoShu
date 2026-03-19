@@ -1,6 +1,7 @@
 import { Navigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { getAuthToken } from '@/lib/auth';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -10,8 +11,7 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
 
   useEffect(() => {
-    // 检查登录状态
-    const isLoggedIn = localStorage.getItem('is_logged_in') === 'true';
+    const isLoggedIn = Boolean(getAuthToken());
     
     if (!isLoggedIn) {
       toast.error('请先登录', { duration: 2000 });
