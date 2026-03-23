@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     dashscope_api_key: str | None = None
     dashscope_model: str = "qwen-max"
     dashscope_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    dashscope_embedding_model: str = "text-embedding-v4"
+    dashscope_embedding_dimensions: int = 1024
+    dashscope_embedding_url: str = "https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding"
 
     model_config = SettingsConfigDict(
         env_file=BASE_DIR / ".env",

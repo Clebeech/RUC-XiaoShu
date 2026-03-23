@@ -6,8 +6,9 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from ..models import ChatSession, Document, DocumentChunk, KnowledgeBase, Message, User
+from .embedding_service import EmbeddingService
 from .llm_service import LLMService
-from .vectorizer import SimpleVectorizer
+from .vectorizer import VectorMath
 
 
 class RAGService:
@@ -32,7 +33,7 @@ class RAGService:
             .all()
         )
 
-        ranked_results = cls._search(question, chunks)[:3]
+        ranked_results = (await cls._search(question, chunks))[:3]
         context = cls._build_context(ranked_results)
         prompt = cls._build_prompt(question, context)
         answer = await LLMService.answer(prompt, cls._system_prompt(knowledge_base_name), model_name=model_name)
@@ -41,6 +42,7 @@ class RAGService:
         db.add(Message(chat_session=chat, role="user", content=question))
         citations = [
             {
+                "document_id": result["chunk"].document.id,
                 "document_name": result["chunk"].document.name,
                 "similarity": round(result["similarity"], 4),
                 "section": result["chunk"].section,
@@ -53,12 +55,12 @@ class RAGService:
         return answer_with_citations, chat, citations
 
     @staticmethod
-    def _search(question: str, chunks: list[DocumentChunk]) -> list[dict[str, object]]:
-        query_embedding = SimpleVectorizer.embed(question)
+    async def _search(question: str, chunks: list[DocumentChunk]) -> list[dict[str, object]]:
+        query_embedding = await EmbeddingService.embed_text(question, text_type="query")
         results: list[dict[str, object]] = []
         for chunk in chunks:
             chunk_embedding = json.loads(chunk.embedding_json)
-            similarity = SimpleVectorizer.cosine_similarity(query_embedding, chunk_embedding)
+            similarity = VectorMath.cosine_similarity(query_embedding, chunk_embedding)
             results.append({"chunk": chunk, "similarity": similarity})
         results.sort(key=lambda item: item["similarity"], reverse=True)
         return results
@@ -127,7 +129,10 @@ class RAGService:
             return answer
 
         lines = [
-            f"[{index}] {citation['document_name']} ({float(citation['similarity']) * 100:.1f}%)"
+            (
+                f"[{index}] [[doc:{int(citation['document_id'])}|{citation['document_name']}]] "
+                f"({float(citation['similarity']) * 100:.1f}%)"
+            )
             for index, citation in enumerate(citations, start=1)
         ]
         return f"{answer}\n\n📚 参考文档：\n" + "\n".join(lines)

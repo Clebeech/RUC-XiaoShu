@@ -56,4 +56,5 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 - 默认数据库是本地 `sqlite`，方便先跑通 MVP。
 - 向量检索目前使用服务端内置的轻量向量器，后续可以替换成 DashScope embedding、OpenAI embedding 或 `pgvector`。
+- 当前默认已经支持通过 DashScope `text-embedding-v4` 生成真实 embedding。
 - 前端接入时，建议把所有模型调用都改成请求这个后端，不再直连大模型服务。

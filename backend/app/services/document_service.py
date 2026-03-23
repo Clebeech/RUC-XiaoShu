@@ -6,10 +6,11 @@ from pathlib import Path
 from docx import Document as DocxDocument
 from fastapi import HTTPException, UploadFile, status
 from pypdf import PdfReader
+from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..models import Document, DocumentChunk, KnowledgeBase
-from .vectorizer import SimpleVectorizer
+from .embedding_service import EmbeddingService
 
 
 class DocumentService:
@@ -37,11 +38,12 @@ class DocumentService:
             mime_type=upload.content_type or "application/octet-stream",
         )
 
-        for chunk in cls._split_into_chunks(content, upload.filename):
+        chunk_payloads = await cls.build_chunk_payloads(content, upload.filename)
+        for chunk in chunk_payloads:
             document.chunks.append(
                 DocumentChunk(
                     content=chunk["content"],
-                    embedding_json=json.dumps(SimpleVectorizer.embed(chunk["content"])),
+                    embedding_json=json.dumps(chunk["embedding"]),
                     section=chunk["section"],
                     start_index=chunk["start_index"],
                     end_index=chunk["end_index"],
@@ -49,6 +51,27 @@ class DocumentService:
             )
 
         return document, len(content)
+
+    @classmethod
+    async def reindex_knowledge_base(cls, db: Session, knowledge_base: KnowledgeBase) -> int:
+        count = 0
+        for document in knowledge_base.documents:
+            chunk_payloads = await cls.build_chunk_payloads(document.content, document.name)
+            document.chunks.clear()
+            for chunk in chunk_payloads:
+                document.chunks.append(
+                    DocumentChunk(
+                        content=chunk["content"],
+                        embedding_json=json.dumps(chunk["embedding"]),
+                        section=chunk["section"],
+                        start_index=chunk["start_index"],
+                        end_index=chunk["end_index"],
+                    )
+                )
+            count += 1
+
+        db.flush()
+        return count
 
     @classmethod
     async def _extract_text(cls, upload: UploadFile) -> str:
@@ -108,6 +131,22 @@ class DocumentService:
             chunks.append(cls._make_chunk(current, file_name, len(chunks), start_index))
 
         return chunks
+
+    @classmethod
+    async def build_chunk_payloads(cls, content: str, file_name: str) -> list[dict[str, str | int | list[float]]]:
+        chunks = cls._split_into_chunks(content, file_name)
+        embeddings = await EmbeddingService.embed_texts(
+            [str(chunk["content"]) for chunk in chunks],
+            text_type="document",
+        )
+
+        return [
+            {
+                **chunk,
+                "embedding": embedding,
+            }
+            for chunk, embedding in zip(chunks, embeddings, strict=False)
+        ]
 
     @staticmethod
     def _make_chunk(content: str, file_name: str, index: int, start_index: int) -> dict[str, str | int]:

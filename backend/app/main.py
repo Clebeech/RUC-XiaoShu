@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, File, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session, selectinload
 
@@ -196,6 +197,24 @@ async def upload_document(
     )
 
 
+@app.post("/api/knowledge-bases/{knowledge_base_name}/reindex")
+async def reindex_knowledge_base(
+    knowledge_base_name: str,
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, int | str]:
+    knowledge_base = db.query(KnowledgeBase).filter(KnowledgeBase.name == knowledge_base_name).first()
+    if knowledge_base is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge base not found")
+
+    reindexed_documents = await DocumentService.reindex_knowledge_base(db, knowledge_base)
+    db.commit()
+    return {
+        "status": "ok",
+        "reindexed_documents": reindexed_documents,
+    }
+
+
 @app.delete("/api/documents/{document_id}")
 def delete_document(
     document_id: int,
@@ -211,6 +230,18 @@ def delete_document(
     db.delete(document)
     db.commit()
     return {"status": "deleted"}
+
+
+@app.get("/api/documents/{document_id}/download")
+def download_document(
+    document_id: int,
+    db: Session = Depends(get_db),
+) -> FileResponse:
+    document = db.query(Document).filter(Document.id == document_id).first()
+    if document is None or not document.file_path:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
+    return FileResponse(path=document.file_path, filename=document.name, media_type=document.mime_type)
 
 
 @app.post("/api/chat/query", response_model=QueryResponse)

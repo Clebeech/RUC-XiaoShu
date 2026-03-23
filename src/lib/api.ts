@@ -54,6 +54,7 @@ export interface QueryResponse {
   answer: string;
   chat_id: number;
   citations: Array<{
+    document_id: number;
     document_name: string;
     similarity: number;
     section?: string | null;

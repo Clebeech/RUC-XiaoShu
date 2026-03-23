@@ -12,6 +12,8 @@ import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
 import { apiClient, BackendChat } from '@/lib/api';
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+
 interface Message {
   id: string;
   content: string;
@@ -281,6 +283,49 @@ export default function Index() {
     });
   };
 
+  const renderMessageContent = (content: string) => {
+    const lines = content.split('\n');
+
+    return lines.map((line, lineIndex) => {
+      const parts: React.ReactNode[] = [];
+      const pattern = /\[\[doc:(\d+)\|([^\]]+)\]\]/g;
+      let lastIndex = 0;
+      let match: RegExpExecArray | null;
+
+      while ((match = pattern.exec(line)) !== null) {
+        const [raw, documentId, documentName] = match;
+        if (match.index > lastIndex) {
+          parts.push(line.slice(lastIndex, match.index));
+        }
+
+        parts.push(
+          <a
+            key={`${documentId}-${match.index}`}
+            href={`${API_BASE_URL}/api/documents/${documentId}/download`}
+            target="_blank"
+            rel="noreferrer"
+            className="underline underline-offset-4 hover:opacity-80"
+          >
+            {documentName}
+          </a>
+        );
+
+        lastIndex = match.index + raw.length;
+      }
+
+      if (lastIndex < line.length) {
+        parts.push(line.slice(lastIndex));
+      }
+
+      return (
+        <span key={`line-${lineIndex}`}>
+          {parts.length > 0 ? parts : line}
+          {lineIndex < lines.length - 1 && <br />}
+        </span>
+      );
+    });
+  };
+
   return (
     <div className="h-screen bg-background text-foreground flex flex-col overflow-hidden font-sans">
       {/* 全局 Toast 容器 */}
@@ -385,7 +430,7 @@ export default function Index() {
                           <span>{message.content}</span>
                         </div>
                       ) : (
-                        <div className="whitespace-pre-wrap leading-relaxed">{message.content}</div>
+                        <div className="leading-relaxed break-words">{renderMessageContent(message.content)}</div>
                       )}
                     </div>
 

@@ -68,6 +68,7 @@ class QueryRequest(BaseModel):
 
 
 class CitationRead(BaseModel):
+    document_id: int
     document_name: str
     similarity: float
     section: str | None = None
