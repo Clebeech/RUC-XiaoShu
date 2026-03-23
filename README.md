@@ -525,8 +525,11 @@ cp .env.production.example .env.production
 默认内容是：
 
 ```env
-VITE_API_BASE_URL=/api
+VITE_API_BASE_URL=
 ```
+
+这里故意留空，表示前端直接请求同域下的 `/api/...` 路径。
+不要写成 `/api`，否则会把登录等请求拼成 `/api/api/...`，导致页面提示 `Not Found`。
 
 后端生产环境：
 
