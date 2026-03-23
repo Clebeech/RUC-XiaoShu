@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -26,13 +27,13 @@ class LoginResponse(BaseModel):
 
 class KnowledgeBaseCreate(BaseModel):
     name: str = Field(min_length=1, max_length=128)
-    description: str | None = None
+    description: Optional[str] = None
 
 
 class KnowledgeBaseRead(BaseModel):
     id: int
     name: str
-    description: str | None
+    description: Optional[str]
     document_count: int
     created_at: datetime
     updated_at: datetime
@@ -41,7 +42,7 @@ class KnowledgeBaseRead(BaseModel):
 class ChunkRead(BaseModel):
     id: int
     content: str
-    section: str | None = None
+    section: Optional[str] = None
     start_index: int
     end_index: int
 
@@ -63,15 +64,15 @@ class DocumentUploadResponse(BaseModel):
 class QueryRequest(BaseModel):
     question: str = Field(min_length=1)
     knowledge_base: str = "general"
-    chat_id: int | None = None
-    model: str | None = None
+    chat_id: Optional[int] = None
+    model: Optional[str] = None
 
 
 class CitationRead(BaseModel):
     document_id: int
     document_name: str
     similarity: float
-    section: str | None = None
+    section: Optional[str] = None
 
 
 class QueryResponse(BaseModel):
@@ -88,30 +89,30 @@ class FeedbackTicketRead(BaseModel):
     id: int
     question: str
     system_answer: str
-    user_comment: str | None
+    user_comment: Optional[str]
     feedback_type: str
     status: str
     priority: str
     category: str
     source: str
     knowledge_base_name: str
-    contact_email: str | None
-    assigned_to: str | None
+    contact_email: Optional[str]
+    assigned_to: Optional[str]
     created_at: datetime
     updated_at: datetime
-    resolved_at: datetime | None
-    username: str | None = None
+    resolved_at: Optional[datetime]
+    username: Optional[str] = None
 
 
 class FeedbackTicketUpdate(BaseModel):
-    status: str | None = None
-    priority: str | None = None
-    assigned_to: str | None = None
+    status: Optional[str] = None
+    priority: Optional[str] = None
+    assigned_to: Optional[str] = None
 
 
 class DashboardMetric(BaseModel):
     label: str
-    value: int | float
+    value: Union[int, float]
     delta: float
     trend: str
 
@@ -124,7 +125,7 @@ class DashboardSeriesPoint(BaseModel):
 class DashboardBreakdownItem(BaseModel):
     label: str
     value: int
-    color: str | None = None
+    color: Optional[str] = None
 
 
 class FeedbackDashboardResponse(BaseModel):

@@ -2,6 +2,7 @@ import base64
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Dict, Optional, Union
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
@@ -310,7 +311,7 @@ async def reindex_knowledge_base(
     knowledge_base_name: str,
     _: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-) -> dict[str, int | str]:
+) -> Dict[str, Union[int, str]]:
     knowledge_base = db.query(KnowledgeBase).filter(KnowledgeBase.name == knowledge_base_name).first()
     if knowledge_base is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge base not found")
@@ -379,8 +380,8 @@ async def image_query(
     question: str = Form(...),
     image: UploadFile = File(...),
     knowledge_base: str = Form(default="education"),
-    model: str | None = Form(default=None),
-    chat_id: int | None = Form(default=None),
+    model: Optional[str] = Form(default=None),
+    chat_id: Optional[int] = Form(default=None),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> QueryResponse:

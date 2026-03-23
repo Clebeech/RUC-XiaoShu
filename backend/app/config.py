@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -16,7 +17,7 @@ class Settings(BaseSettings):
     upload_dir: str = "./data/uploads"
     default_admin_username: str = "admin"
     default_admin_password: str = "change-me"
-    dashscope_api_key: str | None = None
+    dashscope_api_key: Optional[str] = None
     dashscope_model: str = "qwen-max"
     dashscope_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     dashscope_multimodal_model: str = "qwen3.5-plus"
