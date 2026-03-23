@@ -30,4 +30,28 @@ class Settings(BaseSettings):
     )
 
 
+def _resolve_sqlite_url(raw_url: str) -> str:
+    prefix = "sqlite:///"
+    if not raw_url.startswith(prefix):
+        return raw_url
+
+    target = raw_url[len(prefix) :]
+    if not target or target == ":memory:":
+        return raw_url
+
+    path = Path(target)
+    if not path.is_absolute():
+        path = (BASE_DIR / path).resolve()
+    return f"{prefix}{path}"
+
+
+def _resolve_dir(raw_path: str) -> str:
+    path = Path(raw_path)
+    if path.is_absolute():
+        return str(path)
+    return str((BASE_DIR / path).resolve())
+
+
 settings = Settings()
+settings.database_url = _resolve_sqlite_url(settings.database_url)
+settings.upload_dir = _resolve_dir(settings.upload_dir)

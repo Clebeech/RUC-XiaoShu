@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import html
 import json
+import mimetypes
+import re
 from pathlib import Path
 
 from docx import Document as DocxDocument
@@ -19,26 +22,78 @@ class DocumentService:
 
     @classmethod
     async def ingest_upload(cls, upload: UploadFile, knowledge_base: KnowledgeBase) -> tuple[Document, int]:
-        content = await cls._extract_text(upload)
+        payload = await upload.read()
+        await upload.seek(0)
+        file_name = upload.filename or "upload.txt"
+        content = cls._extract_text_from_payload(
+            payload=payload,
+            file_name=file_name,
+            content_type=upload.content_type,
+        )
         if not content.strip():
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Document is empty after parsing")
 
         upload_dir = Path(settings.upload_dir)
         upload_dir.mkdir(parents=True, exist_ok=True)
-        target_path = upload_dir / upload.filename
-        payload = await upload.read()
+        target_path = cls._build_storage_path(upload_dir, file_name)
         target_path.write_bytes(payload)
 
         document = Document(
             knowledge_base=knowledge_base,
-            name=upload.filename,
+            name=file_name,
             content=content,
             file_path=str(target_path),
             size=len(payload),
             mime_type=upload.content_type or "application/octet-stream",
         )
 
-        chunk_payloads = await cls.build_chunk_payloads(content, upload.filename)
+        chunk_payloads = await cls.build_chunk_payloads(content, file_name)
+        for chunk in chunk_payloads:
+            document.chunks.append(
+                DocumentChunk(
+                    content=chunk["content"],
+                    embedding_json=json.dumps(chunk["embedding"]),
+                    section=chunk["section"],
+                    start_index=chunk["start_index"],
+                    end_index=chunk["end_index"],
+                )
+            )
+
+        return document, len(content)
+
+    @classmethod
+    async def ingest_local_file(
+        cls,
+        file_path: Path,
+        knowledge_base: KnowledgeBase,
+        document_name: str | None = None,
+    ) -> tuple[Document, int]:
+        payload = file_path.read_bytes()
+        mime_type = mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
+        content = cls._extract_text_from_payload(
+            payload=payload,
+            file_name=file_path.name,
+            content_type=mime_type,
+        )
+        if not content.strip():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Document is empty after parsing")
+
+        upload_dir = Path(settings.upload_dir)
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        target_name = document_name or file_path.name
+        target_path = cls._build_storage_path(upload_dir, file_path.name)
+        target_path.write_bytes(payload)
+
+        document = Document(
+            knowledge_base=knowledge_base,
+            name=target_name,
+            content=content,
+            file_path=str(target_path),
+            size=len(payload),
+            mime_type=mime_type,
+        )
+
+        chunk_payloads = await cls.build_chunk_payloads(content, target_name)
         for chunk in chunk_payloads:
             document.chunks.append(
                 DocumentChunk(
@@ -75,11 +130,18 @@ class DocumentService:
 
     @classmethod
     async def _extract_text(cls, upload: UploadFile) -> str:
-        content_type = (upload.content_type or "").lower()
-        suffix = Path(upload.filename or "").suffix.lower()
         payload = await upload.read()
         await upload.seek(0)
+        return cls._extract_text_from_payload(
+            payload=payload,
+            file_name=upload.filename or "",
+            content_type=upload.content_type,
+        )
 
+    @classmethod
+    def _extract_text_from_payload(cls, payload: bytes, file_name: str, content_type: str | None = None) -> str:
+        content_type = (content_type or "").lower()
+        suffix = Path(file_name).suffix.lower()
         if content_type.startswith("text/") or suffix in {".txt", ".md"}:
             return payload.decode("utf-8", errors="ignore")
         if suffix == ".pdf":
@@ -106,7 +168,7 @@ class DocumentService:
 
     @classmethod
     def _split_into_chunks(cls, content: str, file_name: str) -> list[dict[str, str | int]]:
-        paragraphs = [paragraph.strip() for paragraph in content.split("\n\n") if paragraph.strip()]
+        paragraphs = cls._normalize_paragraphs(content)
         chunks: list[dict[str, str | int]] = []
         current = ""
         start_index = 0
@@ -133,8 +195,57 @@ class DocumentService:
         return chunks
 
     @classmethod
+    def _normalize_paragraphs(cls, content: str) -> list[str]:
+        raw_paragraphs = [paragraph.strip() for paragraph in content.split("\n\n") if paragraph.strip()]
+        normalized: list[str] = []
+        max_unit = max(1, cls.chunk_size - cls.overlap)
+
+        for paragraph in raw_paragraphs:
+            if len(paragraph) <= cls.chunk_size:
+                normalized.append(paragraph)
+                continue
+
+            normalized.extend(cls._split_large_paragraph(paragraph, max_unit))
+
+        return normalized
+
+    @classmethod
+    def _split_large_paragraph(cls, paragraph: str, max_unit: int) -> list[str]:
+        line_based = [line.strip() for line in paragraph.splitlines() if line.strip()]
+        if len(line_based) > 1:
+            parts: list[str] = []
+            current = ""
+            for line in line_based:
+                candidate = f"{current}\n{line}".strip() if current else line
+                if len(candidate) <= max_unit:
+                    current = candidate
+                    continue
+                if current:
+                    parts.append(current)
+                if len(line) <= max_unit:
+                    current = line
+                else:
+                    parts.extend(cls._split_by_length(line, max_unit))
+                    current = ""
+            if current:
+                parts.append(current)
+            return parts
+
+        return cls._split_by_length(paragraph, max_unit)
+
+    @staticmethod
+    def _split_by_length(text: str, max_unit: int) -> list[str]:
+        parts: list[str] = []
+        cursor = 0
+        while cursor < len(text):
+            parts.append(text[cursor : cursor + max_unit].strip())
+            cursor += max_unit
+        return [part for part in parts if part]
+
+    @classmethod
     async def build_chunk_payloads(cls, content: str, file_name: str) -> list[dict[str, str | int | list[float]]]:
-        chunks = cls._split_into_chunks(content, file_name)
+        normalized_content = cls._normalize_content_for_indexing(content)
+        chunks = cls._split_into_chunks(normalized_content, file_name)
         embeddings = await EmbeddingService.embed_texts(
             [str(chunk["content"]) for chunk in chunks],
             text_type="document",
@@ -157,3 +268,54 @@ class DocumentService:
             "start_index": start_index,
             "end_index": start_index + len(clean),
         }
+
+    @staticmethod
+    def _build_storage_path(upload_dir: Path, file_name: str) -> Path:
+        candidate = upload_dir / Path(file_name).name
+        if not candidate.exists():
+            return candidate
+
+        stem = candidate.stem
+        suffix = candidate.suffix
+        index = 1
+        while True:
+            attempt = upload_dir / f"{stem}_{index}{suffix}"
+            if not attempt.exists():
+                return attempt
+            index += 1
+
+    @classmethod
+    def _normalize_content_for_indexing(cls, content: str) -> str:
+        normalized = content.replace("\r\n", "\n").replace("\r", "\n")
+        normalized = re.sub(r"!\[[^\]]*\]\([^)]+\)", " ", normalized)
+        normalized = re.sub(r"<table\b.*?</table>", cls._table_to_text, normalized, flags=re.IGNORECASE | re.DOTALL)
+        normalized = re.sub(r"<br\s*/?>", "\n", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(r"</p\s*>", "\n", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(r"<[^>]+>", " ", normalized)
+        normalized = html.unescape(normalized)
+        normalized = re.sub(r"[ \t]+", " ", normalized)
+        normalized = re.sub(r"\n{3,}", "\n\n", normalized)
+        return normalized.strip()
+
+    @classmethod
+    def _table_to_text(cls, match: re.Match[str]) -> str:
+        table_html = match.group(0)
+        rows = re.findall(r"<tr\b[^>]*>(.*?)</tr>", table_html, flags=re.IGNORECASE | re.DOTALL)
+        formatted_rows: list[str] = []
+        for row in rows:
+            cells = re.findall(r"<t[dh]\b[^>]*>(.*?)</t[dh]>", row, flags=re.IGNORECASE | re.DOTALL)
+            clean_cells = [cls._clean_html_cell(cell) for cell in cells]
+            clean_cells = [cell for cell in clean_cells if cell]
+            if clean_cells:
+                formatted_rows.append(" | ".join(clean_cells))
+        if not formatted_rows:
+            return "\n"
+        return "\n" + "\n".join(formatted_rows) + "\n"
+
+    @staticmethod
+    def _clean_html_cell(value: str) -> str:
+        text = re.sub(r"<br\s*/?>", " / ", value, flags=re.IGNORECASE)
+        text = re.sub(r"<[^>]+>", " ", text)
+        text = html.unescape(text)
+        text = re.sub(r"\s+", " ", text).strip()
+        return text

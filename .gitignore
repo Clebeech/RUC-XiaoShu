@@ -31,3 +31,10 @@ backend/app/__pycache__/
 backend/app/services/__pycache__/
 backend/*.db
 backend/data/
+
+# Local data pipelines
+data_prepared/
+data_normalized/
+data_processed/
+data/
+*.db

@@ -260,6 +260,119 @@ curl -X POST http://127.0.0.1:8000/api/knowledge-bases/education/reindex \
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/knowledge-bases/education/reindex \
+  -H "Authorization: Bearer 你的登录token"
+```
+
+课程知识库：
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/knowledge-bases/course/reindex \
+  -H "Authorization: Bearer 你的登录token"
+```
+
+通用知识库：
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/knowledge-bases/general/reindex \
+  -H "Authorization: Bearer 你的登录token"
+```
+
+## 8. 批量导入本地 Markdown / TXT / Word
+
+如果你已经把 PDF 转成了 Markdown，或者手里已经有整理好的 `txt / doc / docx`，可以直接批量入库，不必从前端一个个上传。
+
+默认脚本位置：
+
+```text
+backend/scripts/import_local_documents.py
+```
+
+这个脚本会做这些事情：
+
+- 递归扫描目录下的 `md / txt / doc / docx`
+- 调用后端现有的文本抽取与切块逻辑
+- 使用当前配置的 Qwen embedding 自动向量化
+- 把文档和 chunk 写入指定知识库
+
+### 先确认后端环境变量
+
+进入后端目录并激活虚拟环境：
+
+```bash
+cd /Users/tigerxu/Desktop/RUC/活动/第二次大创/rag_proj/workspace/shadcn-ui/backend
+source .venv/bin/activate
+```
+
+确保 `backend/.env` 里已经配置了可用的：
+
+- `DASHSCOPE_API_KEY`
+- `DASHSCOPE_EMBEDDING_MODEL`
+
+### 例子 1：把 `data_normalized` 全部导入教务知识库
+
+在项目根目录执行：
+
+```bash
+cd /Users/tigerxu/Desktop/RUC/活动/第二次大创/rag_proj/workspace/shadcn-ui
+backend/.venv/bin/python backend/scripts/import_local_documents.py \
+  --input-dir data_normalized \
+  --knowledge-base education \
+  --skip-existing
+```
+
+### 例子 2：只导入 Markdown
+
+```bash
+backend/.venv/bin/python backend/scripts/import_local_documents.py \
+  --input-dir data_normalized/pdf_markdown \
+  --knowledge-base education \
+  --extensions md \
+  --skip-existing
+```
+
+### 例子 3：先试跑前 3 个文件
+
+```bash
+backend/.venv/bin/python backend/scripts/import_local_documents.py \
+  --input-dir data_normalized/pdf_markdown \
+  --knowledge-base education \
+  --extensions md \
+  --limit 3
+```
+
+### 例子 4：只看会导入哪些文件，不真正写入
+
+```bash
+backend/.venv/bin/python backend/scripts/import_local_documents.py \
+  --input-dir data_normalized \
+  --knowledge-base education \
+  --dry-run
+```
+
+### 导入后的表现
+
+脚本会把文档名保存为相对路径，例如：
+
+```text
+2022级培养方案/2022数学与应用数学专业培养方案/2022数学与应用数学专业培养方案/auto/2022数学与应用数学专业培养方案.md
+```
+
+这样后面在引用和排错时，能看出文档原本来自哪个目录。
+
+如果同一路径的文档已经存在：
+
+- 加 `--skip-existing`：直接跳过
+- 不加 `--skip-existing`：会先删掉旧记录，再重新入库
+
+### 什么时候还需要 Reindex
+
+这个批量导入脚本本身就会自动重新切块并生成最新 embedding，所以：
+
+- 新导入的文档不需要额外 reindex
+- 只有老文档或者你修改了 embedding 配置之后，才需要重新执行 `reindex`
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/knowledge-bases/education/reindex \
   -H "Authorization: Bearer $TOKEN"
 ```
 
