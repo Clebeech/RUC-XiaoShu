@@ -19,6 +19,7 @@ class User(Base):
 
     sessions: Mapped[list["SessionToken"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     chats: Mapped[list["ChatSession"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    feedback_tickets: Mapped[list["FeedbackTicket"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 
 
 class SessionToken(Base):
@@ -98,3 +99,26 @@ class Message(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     chat_session: Mapped["ChatSession"] = relationship(back_populates="messages")
+
+
+class FeedbackTicket(Base):
+    __tablename__ = "feedback_tickets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    question: Mapped[str] = mapped_column(Text)
+    system_answer: Mapped[str] = mapped_column(Text)
+    user_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    feedback_type: Mapped[str] = mapped_column(String(32), default="answer_quality")
+    status: Mapped[str] = mapped_column(String(32), default="open", index=True)
+    priority: Mapped[str] = mapped_column(String(16), default="medium")
+    category: Mapped[str] = mapped_column(String(64), default="检索未命中")
+    source: Mapped[str] = mapped_column(String(32), default="thumbs_down")
+    knowledge_base_name: Mapped[str] = mapped_column(String(128), default="education")
+    contact_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    assigned_to: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    user: Mapped["User"] = relationship(back_populates="feedback_tickets")

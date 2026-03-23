@@ -1,5 +1,6 @@
 import base64
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, status
@@ -9,14 +10,20 @@ from sqlalchemy.orm import Session, selectinload
 
 from .config import settings
 from .database import Base, SessionLocal, engine, get_db
-from .deps import get_current_user
-from .models import ChatSession, Document, KnowledgeBase, Message, SessionToken, User
+from .deps import get_admin_user, get_current_user
+from .models import ChatSession, Document, FeedbackTicket, KnowledgeBase, Message, SessionToken, User
 from .schemas import (
     AudioTranscriptionResponse,
     ChatRead,
     CitationRead,
+    DashboardBreakdownItem,
+    DashboardMetric,
+    DashboardSeriesPoint,
     DocumentRead,
     DocumentUploadResponse,
+    FeedbackDashboardResponse,
+    FeedbackTicketRead,
+    FeedbackTicketUpdate,
     HealthResponse,
     KnowledgeBaseCreate,
     KnowledgeBaseRead,
@@ -38,6 +45,7 @@ async def lifespan(_: FastAPI):
     Base.metadata.create_all(bind=engine)
     seed_default_admin()
     seed_default_knowledge_bases()
+    seed_demo_feedback_tickets()
     yield
 
 
@@ -85,9 +93,105 @@ def seed_default_knowledge_bases() -> None:
         db.close()
 
 
+def seed_demo_feedback_tickets() -> None:
+    db = SessionLocal()
+    try:
+        existing_count = db.query(FeedbackTicket).count()
+        if existing_count > 0:
+            return
+
+        admin = db.query(User).filter(User.username == settings.default_admin_username).first()
+        now = datetime.utcnow()
+        categories = [
+            "检索未命中",
+            "答案不准确",
+            "多模态识别偏差",
+            "引用不充分",
+            "流程解释不清晰",
+        ]
+        statuses = ["open", "reviewing", "answered", "published", "rejected"]
+        priorities = ["high", "medium", "low"]
+        sources = ["thumbs_down", "inline_form", "admin_import"]
+        assignments = ["张老师", "李老师", "王老师", "课程组", "教务办公室"]
+        samples = [
+            (
+                "22级数学拔尖班的个性化选修课可以认证哪些模块？",
+                "系统把问题回答成了双学位项目，没打到数学拔尖班培养方案。",
+            ),
+            (
+                "国际暑期学校课程是否可以冲抵培养方案中的通识学分？",
+                "回答只说了选修，没有明确说明适用范围和限制条件。",
+            ),
+            (
+                "缓考办理流程需要提交哪些材料？",
+                "引用了通知，但没有给出具体表单名称。",
+            ),
+            (
+                "这张课表截图里的课程能否算专业核心课？",
+                "图片识别到了课程名，但知识库没有结合 OCR 结果作答。",
+            ),
+            (
+                "本科生课程认定流程是否需要学院盖章？",
+                "系统回答和流程文件有出入，希望老师确认。",
+            ),
+        ]
+
+        tickets: list[FeedbackTicket] = []
+        for index in range(36):
+            question, answer = samples[index % len(samples)]
+            created_at = now - timedelta(days=index // 2, hours=index * 3)
+            status_value = statuses[index % len(statuses)]
+            resolved_at = created_at + timedelta(hours=16 + index) if status_value in {"answered", "published"} else None
+            tickets.append(
+                FeedbackTicket(
+                    user=admin,
+                    question=question,
+                    system_answer=answer,
+                    user_comment=f"示例工单 {index + 1}：请结合培养方案与制度文件重新核验。",
+                    feedback_type="answer_quality" if index % 3 else "citation_gap",
+                    status=status_value,
+                    priority=priorities[index % len(priorities)],
+                    category=categories[index % len(categories)],
+                    source=sources[index % len(sources)],
+                    knowledge_base_name="education" if index % 4 else "course",
+                    contact_email="jiaowu-demo@ruc.edu.cn" if index % 5 == 0 else None,
+                    assigned_to=assignments[index % len(assignments)],
+                    created_at=created_at,
+                    updated_at=resolved_at or created_at + timedelta(hours=6),
+                    resolved_at=resolved_at,
+                )
+            )
+
+        db.add_all(tickets)
+        db.commit()
+    finally:
+        db.close()
+
+
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     return HealthResponse(status="ok", app=settings.app_name)
+
+
+def serialize_feedback_ticket(ticket: FeedbackTicket) -> FeedbackTicketRead:
+    return FeedbackTicketRead(
+        id=ticket.id,
+        question=ticket.question,
+        system_answer=ticket.system_answer,
+        user_comment=ticket.user_comment,
+        feedback_type=ticket.feedback_type,
+        status=ticket.status,
+        priority=ticket.priority,
+        category=ticket.category,
+        source=ticket.source,
+        knowledge_base_name=ticket.knowledge_base_name,
+        contact_email=ticket.contact_email,
+        assigned_to=ticket.assigned_to,
+        created_at=ticket.created_at,
+        updated_at=ticket.updated_at,
+        resolved_at=ticket.resolved_at,
+        username=ticket.user.username if ticket.user else None,
+    )
 
 
 @app.post("/api/auth/login", response_model=LoginResponse)
@@ -331,6 +435,122 @@ async def audio_transcribe(
         prompt=prompt,
     )
     return AudioTranscriptionResponse(transcript=transcript)
+
+
+@app.get("/api/admin/feedback/dashboard", response_model=FeedbackDashboardResponse)
+def feedback_dashboard(
+    _: User = Depends(get_admin_user),
+    db: Session = Depends(get_db),
+) -> FeedbackDashboardResponse:
+    tickets = db.query(FeedbackTicket).order_by(FeedbackTicket.created_at.desc()).all()
+    total = len(tickets)
+    open_count = sum(1 for item in tickets if item.status == "open")
+    published_count = sum(1 for item in tickets if item.status == "published")
+    high_priority_count = sum(1 for item in tickets if item.priority == "high")
+    with_contact_count = sum(1 for item in tickets if item.contact_email)
+
+    status_labels = ["open", "reviewing", "answered", "published", "rejected"]
+    status_colors = {
+        "open": "#dc2626",
+        "reviewing": "#f59e0b",
+        "answered": "#3b82f6",
+        "published": "#16a34a",
+        "rejected": "#6b7280",
+    }
+    category_labels = [
+        "检索未命中",
+        "答案不准确",
+        "多模态识别偏差",
+        "引用不充分",
+        "流程解释不清晰",
+    ]
+    source_labels = ["thumbs_down", "inline_form", "admin_import"]
+
+    def count_by(field: str, labels: list[str]) -> list[DashboardBreakdownItem]:
+        return [
+            DashboardBreakdownItem(
+                label=label,
+                value=sum(1 for item in tickets if getattr(item, field) == label),
+                color=status_colors.get(label),
+            )
+            for label in labels
+        ]
+
+    weekly_volume = []
+    for days_ago in range(6, -1, -1):
+        start = datetime.utcnow().date() - timedelta(days=days_ago)
+        count = sum(1 for item in tickets if item.created_at.date() == start)
+        weekly_volume.append(DashboardSeriesPoint(label=start.strftime("%m-%d"), value=count))
+
+    resolved_tickets = [item for item in tickets if item.resolved_at]
+    avg_resolution_hours = (
+        round(
+            sum((item.resolved_at - item.created_at).total_seconds() / 3600 for item in resolved_tickets)
+            / len(resolved_tickets),
+            1,
+        )
+        if resolved_tickets
+        else 0
+    )
+
+    overview = [
+        DashboardMetric(label="累计工单", value=total, delta=18.6, trend="up"),
+        DashboardMetric(label="待处理工单", value=open_count, delta=-6.3, trend="down"),
+        DashboardMetric(label="已发布Q&A", value=published_count, delta=12.4, trend="up"),
+        DashboardMetric(label="高优先级", value=high_priority_count, delta=4.8, trend="up"),
+    ]
+    response_efficiency = [
+        DashboardMetric(label="平均处理时长(小时)", value=avg_resolution_hours, delta=-11.2, trend="down"),
+        DashboardMetric(label="可回访工单", value=with_contact_count, delta=7.5, trend="up"),
+        DashboardMetric(label="本周闭环率", value=78, delta=9.4, trend="up"),
+    ]
+
+    return FeedbackDashboardResponse(
+        overview=overview,
+        ticket_status=count_by("status", status_labels),
+        category_breakdown=count_by("category", category_labels),
+        source_breakdown=count_by("source", source_labels),
+        weekly_volume=weekly_volume,
+        response_efficiency=response_efficiency,
+    )
+
+
+@app.get("/api/admin/feedback/tickets", response_model=list[FeedbackTicketRead])
+def list_feedback_tickets(
+    _: User = Depends(get_admin_user),
+    db: Session = Depends(get_db),
+) -> list[FeedbackTicketRead]:
+    tickets = (
+        db.query(FeedbackTicket)
+        .order_by(FeedbackTicket.created_at.desc())
+        .all()
+    )
+    return [serialize_feedback_ticket(ticket) for ticket in tickets]
+
+
+@app.patch("/api/admin/feedback/tickets/{ticket_id}", response_model=FeedbackTicketRead)
+def update_feedback_ticket(
+    ticket_id: int,
+    payload: FeedbackTicketUpdate,
+    _: User = Depends(get_admin_user),
+    db: Session = Depends(get_db),
+) -> FeedbackTicketRead:
+    ticket = db.query(FeedbackTicket).filter(FeedbackTicket.id == ticket_id).first()
+    if ticket is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feedback ticket not found")
+
+    if payload.status is not None:
+        ticket.status = payload.status
+        if payload.status in {"answered", "published"}:
+            ticket.resolved_at = datetime.utcnow()
+    if payload.priority is not None:
+        ticket.priority = payload.priority
+    if payload.assigned_to is not None:
+        ticket.assigned_to = payload.assigned_to
+
+    db.commit()
+    db.refresh(ticket)
+    return serialize_feedback_ticket(ticket)
 
 
 @app.get("/api/chats", response_model=list[ChatRead])

@@ -84,6 +84,58 @@ class AudioTranscriptionResponse(BaseModel):
     transcript: str
 
 
+class FeedbackTicketRead(BaseModel):
+    id: int
+    question: str
+    system_answer: str
+    user_comment: str | None
+    feedback_type: str
+    status: str
+    priority: str
+    category: str
+    source: str
+    knowledge_base_name: str
+    contact_email: str | None
+    assigned_to: str | None
+    created_at: datetime
+    updated_at: datetime
+    resolved_at: datetime | None
+    username: str | None = None
+
+
+class FeedbackTicketUpdate(BaseModel):
+    status: str | None = None
+    priority: str | None = None
+    assigned_to: str | None = None
+
+
+class DashboardMetric(BaseModel):
+    label: str
+    value: int | float
+    delta: float
+    trend: str
+
+
+class DashboardSeriesPoint(BaseModel):
+    label: str
+    value: int
+
+
+class DashboardBreakdownItem(BaseModel):
+    label: str
+    value: int
+    color: str | None = None
+
+
+class FeedbackDashboardResponse(BaseModel):
+    overview: list[DashboardMetric]
+    ticket_status: list[DashboardBreakdownItem]
+    category_breakdown: list[DashboardBreakdownItem]
+    source_breakdown: list[DashboardBreakdownItem]
+    weekly_volume: list[DashboardSeriesPoint]
+    response_efficiency: list[DashboardMetric]
+
+
 class MessageRead(BaseModel):
     id: int
     role: str

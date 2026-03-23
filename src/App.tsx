@@ -6,6 +6,7 @@ import Index from './pages/Index';
 import Login from './pages/Login';
 import NotFound from './pages/NotFound';
 import ProtectedRoute from './components/ProtectedRoute';
+import AdminFeedbackDashboard from './pages/AdminFeedbackDashboard';
 
 const queryClient = new QueryClient();
 
@@ -19,6 +20,11 @@ const App = () => (
           <Route path="/" element={
             <ProtectedRoute>
               <Index />
+            </ProtectedRoute>
+          } />
+          <Route path="/admin/feedback" element={
+            <ProtectedRoute>
+              <AdminFeedbackDashboard />
             </ProtectedRoute>
           } />
           <Route path="*" element={<NotFound />} />

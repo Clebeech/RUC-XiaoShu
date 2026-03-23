@@ -65,6 +65,52 @@ export interface AudioTranscriptionResponse {
   transcript: string;
 }
 
+export interface FeedbackTicket {
+  id: number;
+  question: string;
+  system_answer: string;
+  user_comment?: string | null;
+  feedback_type: string;
+  status: string;
+  priority: string;
+  category: string;
+  source: string;
+  knowledge_base_name: string;
+  contact_email?: string | null;
+  assigned_to?: string | null;
+  created_at: string;
+  updated_at: string;
+  resolved_at?: string | null;
+  username?: string | null;
+}
+
+export interface DashboardMetric {
+  label: string;
+  value: number;
+  delta: number;
+  trend: string;
+}
+
+export interface DashboardSeriesPoint {
+  label: string;
+  value: number;
+}
+
+export interface DashboardBreakdownItem {
+  label: string;
+  value: number;
+  color?: string | null;
+}
+
+export interface FeedbackDashboard {
+  overview: DashboardMetric[];
+  ticket_status: DashboardBreakdownItem[];
+  category_breakdown: DashboardBreakdownItem[];
+  source_breakdown: DashboardBreakdownItem[];
+  weekly_volume: DashboardSeriesPoint[];
+  response_efficiency: DashboardMetric[];
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getAuthToken();
   const headers = new Headers(init?.headers);
@@ -177,6 +223,21 @@ export const apiClient = {
     return request<AudioTranscriptionResponse>('/api/audio/transcribe', {
       method: 'POST',
       body: formData,
+    });
+  },
+
+  getFeedbackDashboard() {
+    return request<FeedbackDashboard>('/api/admin/feedback/dashboard');
+  },
+
+  listFeedbackTickets() {
+    return request<FeedbackTicket[]>('/api/admin/feedback/tickets');
+  },
+
+  updateFeedbackTicket(ticketId: number, payload: Partial<Pick<FeedbackTicket, 'status' | 'priority' | 'assigned_to'>>) {
+    return request<FeedbackTicket>(`/api/admin/feedback/tickets/${ticketId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
     });
   },
 };

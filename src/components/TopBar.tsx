@@ -16,11 +16,11 @@ import {
   DialogTrigger,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Settings, FileText, Database, Sparkles, HelpCircle, Trash2, Info, LogOut } from 'lucide-react';
+import { Settings, FileText, Database, Sparkles, HelpCircle, Trash2, LogOut, PanelsTopLeft } from 'lucide-react';
 import KnowledgeBaseManager from './KnowledgeBaseManager';
 import { Document } from '@/types/knowledge';
 import { toast } from 'sonner';
-import { clearAuthSession } from '@/lib/auth';
+import { clearAuthSession, getStoredUser } from '@/lib/auth';
 
 interface TopBarProps {
   selectedKnowledgeBase: string;
@@ -39,6 +39,8 @@ export default function TopBar({
 }: TopBarProps) {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const currentUser = getStoredUser();
+  const isAdmin = currentUser?.role === 'admin';
 
   const handleClearCache = () => {
     if (confirm('确定要清除本地登录态和界面缓存吗？页面将重新加载。')) {
@@ -109,6 +111,20 @@ export default function TopBar({
       </div>
 
       <div className="flex items-center space-x-1">
+        {isAdmin && (
+          <Button
+            asChild
+            variant="outline"
+            size="sm"
+            className="mr-2 border-primary/20 bg-primary/5 text-primary hover:bg-primary/10"
+          >
+            <a href="/admin/feedback">
+              <PanelsTopLeft className="mr-2 h-4 w-4" />
+              闭环看板
+            </a>
+          </Button>
+        )}
+
         {/* 使用帮助 Dialog */}
         <Dialog open={isHelpOpen} onOpenChange={setIsHelpOpen}>
           <DialogTrigger asChild>
