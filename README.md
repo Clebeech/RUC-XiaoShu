@@ -70,6 +70,8 @@ DEFAULT_ADMIN_PASSWORD=change-me
 DASHSCOPE_API_KEY=你的百炼API Key
 DASHSCOPE_MODEL=qwen-max
 DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+DASHSCOPE_MULTIMODAL_MODEL=qwen3.5-plus
+DASHSCOPE_AUDIO_MODEL=qwen3-omni-flash
 DASHSCOPE_EMBEDDING_MODEL=text-embedding-v4
 DASHSCOPE_EMBEDDING_DIMENSIONS=1024
 DASHSCOPE_EMBEDDING_URL=https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding
@@ -166,6 +168,11 @@ http://localhost:5173
 5. 选择知识库
 6. 选择模型：`qwen-max / qwen-plus / qwen-turbo`
 7. 开始提问
+
+你也可以在输入框左侧使用：
+
+- 图片按钮：上传图片并直接发起图片问答
+- 语音按钮：上传音频后自动转写到输入框
 
 ## 7. 关于 Reindex
 

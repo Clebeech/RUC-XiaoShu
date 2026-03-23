@@ -1,6 +1,8 @@
+import base64
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile, status
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session, selectinload
@@ -8,8 +10,9 @@ from sqlalchemy.orm import Session, selectinload
 from .config import settings
 from .database import Base, SessionLocal, engine, get_db
 from .deps import get_current_user
-from .models import ChatSession, Document, KnowledgeBase, SessionToken, User
+from .models import ChatSession, Document, KnowledgeBase, Message, SessionToken, User
 from .schemas import (
+    AudioTranscriptionResponse,
     ChatRead,
     CitationRead,
     DocumentRead,
@@ -26,6 +29,7 @@ from .schemas import (
 )
 from .security import create_token, hash_password, verify_password
 from .services.document_service import DocumentService
+from .services.llm_service import LLMService
 from .services.rag_service import RAGService
 
 
@@ -264,6 +268,69 @@ async def query(
         chat_id=chat.id,
         citations=[CitationRead(**citation) for citation in citations],
     )
+
+
+@app.post("/api/chat/image-query", response_model=QueryResponse)
+async def image_query(
+    question: str = Form(...),
+    image: UploadFile = File(...),
+    knowledge_base: str = Form(default="education"),
+    model: str | None = Form(default=None),
+    chat_id: int | None = Form(default=None),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> QueryResponse:
+    payload = await image.read()
+    if not payload:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Image file is empty")
+
+    mime_type = image.content_type or "image/jpeg"
+    image_data_url = f"data:{mime_type};base64,{base64.b64encode(payload).decode('utf-8')}"
+    image_context = await LLMService.extract_image_context(
+        image_bytes=payload,
+        mime_type=mime_type,
+        question=question,
+    )
+    search_text = f"{question}\n\n图片识别结果：\n{image_context}"
+    answer, chat, citations = await RAGService.query_with_search_text(
+        db=db,
+        user=user,
+        question=question,
+        search_text=search_text,
+        question_context=f"图片识别结果：\n{image_context}",
+        knowledge_base_name=knowledge_base,
+        model_name=model,
+        chat_id=chat_id,
+    )
+    if chat.messages:
+        chat.messages[-2].content = f"[[image:{image_data_url}]]\n{question}"
+    db.commit()
+    return QueryResponse(
+        answer=answer,
+        chat_id=chat.id,
+        citations=[CitationRead(**citation) for citation in citations],
+    )
+
+
+@app.post("/api/audio/transcribe", response_model=AudioTranscriptionResponse)
+async def audio_transcribe(
+    audio: UploadFile = File(...),
+    prompt: str = Form(default="请将这段音频准确转写为中文文本，只输出转写结果。"),
+    _: User = Depends(get_current_user),
+) -> AudioTranscriptionResponse:
+    payload = await audio.read()
+    if not payload:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Audio file is empty")
+
+    suffix = Path(audio.filename or "").suffix.lower().lstrip(".")
+    content_type = (audio.content_type or "").lower()
+    audio_format = suffix or content_type.split("/")[-1] or "mp3"
+    transcript = await LLMService.transcribe_audio(
+        audio_bytes=payload,
+        audio_format=audio_format,
+        prompt=prompt,
+    )
+    return AudioTranscriptionResponse(transcript=transcript)
 
 
 @app.get("/api/chats", response_model=list[ChatRead])

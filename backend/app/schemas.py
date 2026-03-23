@@ -80,6 +80,10 @@ class QueryResponse(BaseModel):
     citations: list[CitationRead]
 
 
+class AudioTranscriptionResponse(BaseModel):
+    transcript: str
+
+
 class MessageRead(BaseModel):
     id: int
     role: str

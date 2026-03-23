@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Send, User, Bot, Loader2, Trash2, ThumbsUp, ThumbsDown } from 'lucide-react';
+import { Send, User, Bot, Loader2, Trash2, ThumbsUp, ThumbsDown, ImagePlus, Mic, X } from 'lucide-react';
 import TopBar from '@/components/TopBar';
 import ChatHistory, { ChatSessionItem } from '@/components/ChatHistory';
 import { Document } from '@/types/knowledge';
@@ -23,6 +23,16 @@ interface Message {
   feedback?: 'like' | 'dislike' | null;
 }
 
+interface PendingImage {
+  file: File;
+  previewUrl: string;
+}
+
+interface ParsedMessageContent {
+  imageUrl: string | null;
+  text: string;
+}
+
 export default function Index() {
   const [chats, setChats] = useState<BackendChat[]>([]);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
@@ -32,9 +42,12 @@ export default function Index() {
   const [selectedKnowledgeBase, setSelectedKnowledgeBase] = useState('education');
   const [selectedModel, setSelectedModel] = useState('qwen-max');
   const [documents, setDocuments] = useState<Document[]>([]);
+  const [pendingImage, setPendingImage] = useState<PendingImage | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const audioInputRef = useRef<HTMLInputElement>(null);
 
   // 初始化默认消息
   const getDefaultMessage = (): Message => ({
@@ -49,6 +62,14 @@ export default function Index() {
     void refreshChats();
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (pendingImage?.previewUrl) {
+        URL.revokeObjectURL(pendingImage.previewUrl);
+      }
+    };
+  }, [pendingImage]);
+
   const mapBackendChatMessages = (chat: BackendChat): Message[] => (
     chat.messages.map((message) => ({
       id: String(message.id),
@@ -58,6 +79,17 @@ export default function Index() {
       feedback: message.feedback ?? null,
     }))
   );
+
+  const parseMessageContent = (content: string): ParsedMessageContent => {
+    const match = content.match(/^\[\[image:(.+?)\]\]\n?/s);
+    if (!match) {
+      return { imageUrl: null, text: content };
+    }
+    return {
+      imageUrl: match[1],
+      text: content.slice(match[0].length),
+    };
+  };
 
   const refreshChats = async (preferredChatId?: number) => {
     try {
@@ -94,10 +126,11 @@ export default function Index() {
 
   const chatSessions: ChatSessionItem[] = chats.map((chat) => {
     const lastMessage = chat.messages[chat.messages.length - 1];
+    const parsedLastMessage = lastMessage ? parseMessageContent(lastMessage.content) : null;
     return {
       id: String(chat.id),
       title: chat.title,
-      lastMessage: lastMessage?.content || '新对话',
+      lastMessage: parsedLastMessage?.text || '新对话',
       timestamp: new Date(lastMessage?.created_at || chat.created_at),
       messageCount: chat.messages.length,
     };
@@ -112,11 +145,16 @@ export default function Index() {
   }, [currentMessages]);
 
   const handleSendMessage = async () => {
-    if (!inputValue.trim() || isLoading) return;
+    if ((!inputValue.trim() && !pendingImage) || isLoading) return;
+
+    const questionText = inputValue.trim() || '请结合这张图片回答。';
+    const userContent = pendingImage
+      ? `[[image:${pendingImage.previewUrl}]]\n${questionText}`
+      : questionText;
 
     const userMessage: Message = {
       id: Date.now().toString(),
-      content: inputValue.trim(),
+      content: userContent,
       sender: 'user',
       timestamp: new Date()
     };
@@ -160,15 +198,27 @@ export default function Index() {
     setIsLoading(true);
 
     try {
-      const response = await apiClient.query(
-        userMessage.content,
-        selectedKnowledgeBase,
-        selectedModel,
-        currentChatId ? Number(currentChatId) : undefined
-      );
+      const response = pendingImage
+        ? await apiClient.imageQuery(
+            questionText,
+            pendingImage.file,
+            selectedKnowledgeBase,
+            selectedModel,
+            currentChatId ? Number(currentChatId) : undefined
+          )
+        : await apiClient.query(
+            userMessage.content,
+            selectedKnowledgeBase,
+            selectedModel,
+            currentChatId ? Number(currentChatId) : undefined
+          );
 
       await refreshChats(response.chat_id);
       setDraftMessages([getDefaultMessage()]);
+      if (pendingImage?.previewUrl) {
+        URL.revokeObjectURL(pendingImage.previewUrl);
+      }
+      setPendingImage(null);
       toast.success(response.citations.length > 0 ? '回答已更新并附带引用' : '回答已更新');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '发生未知错误';
@@ -198,11 +248,78 @@ export default function Index() {
     }
   };
 
+  const handleImageTrigger = () => {
+    if (isLoading) return;
+    imageInputRef.current?.click();
+  };
+
+  const handleAudioTrigger = () => {
+    if (isLoading) return;
+    audioInputRef.current?.click();
+  };
+
+  const handleImageFile = (file: File) => {
+    if (pendingImage?.previewUrl) {
+      URL.revokeObjectURL(pendingImage.previewUrl);
+    }
+    setPendingImage({
+      file,
+      previewUrl: URL.createObjectURL(file),
+    });
+    toast.success('图片已添加，请输入问题后发送');
+  };
+
+  const handleImageSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    handleImageFile(file);
+  };
+
+  const handleAudioSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    setIsLoading(true);
+    try {
+      const response = await apiClient.transcribeAudio(file);
+      setInputValue(response.transcript);
+      toast.success('语音识别完成，已填入输入框');
+      inputRef.current?.focus();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '语音识别失败');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
     }
+  };
+
+  const handleInputPaste = async (event: React.ClipboardEvent<HTMLInputElement>) => {
+    if (isLoading) return;
+
+    const items = Array.from(event.clipboardData.items);
+    const imageItem = items.find((item) => item.type.startsWith('image/'));
+    if (!imageItem) return;
+
+    const file = imageItem.getAsFile();
+    if (!file) return;
+
+    event.preventDefault();
+    handleImageFile(file);
+  };
+
+  const handleRemovePendingImage = () => {
+    if (pendingImage?.previewUrl) {
+      URL.revokeObjectURL(pendingImage.previewUrl);
+    }
+    setPendingImage(null);
   };
 
   const handleClearChat = () => {
@@ -284,9 +401,10 @@ export default function Index() {
   };
 
   const renderMessageContent = (content: string) => {
-    const lines = content.split('\n');
+    const parsed = parseMessageContent(content);
+    const textLines = parsed.text.split('\n');
 
-    return lines.map((line, lineIndex) => {
+    const renderedText = textLines.map((line, lineIndex) => {
       const parts: React.ReactNode[] = [];
       const pattern = /\[\[doc:(\d+)\|([^\]]+)\]\]/g;
       let lastIndex = 0;
@@ -320,10 +438,23 @@ export default function Index() {
       return (
         <span key={`line-${lineIndex}`}>
           {parts.length > 0 ? parts : line}
-          {lineIndex < lines.length - 1 && <br />}
+          {lineIndex < textLines.length - 1 && <br />}
         </span>
       );
     });
+
+    return (
+      <>
+        {parsed.imageUrl && (
+          <img
+            src={parsed.imageUrl}
+            alt="聊天图片"
+            className="mb-3 max-h-64 w-auto rounded-xl border border-white/10 object-contain"
+          />
+        )}
+        {renderedText}
+      </>
+    );
   };
 
   return (
@@ -495,23 +626,79 @@ export default function Index() {
               transition={{ delay: 0.5 }}
               className="max-w-4xl mx-auto relative group"
             >
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleImageSelected}
+              />
+              <input
+                ref={audioInputRef}
+                type="file"
+                accept="audio/*"
+                className="hidden"
+                onChange={handleAudioSelected}
+              />
               <div className="absolute -inset-0.5 bg-gradient-to-r from-primary/30 to-blue-500/30 rounded-2xl blur opacity-20 group-hover:opacity-100 transition duration-700 animate-pulse"></div>
               <div className="relative bg-card rounded-2xl shadow-xl border border-border/50 flex items-center p-1.5 focus-within:ring-2 focus-within:ring-primary/20 transition-all duration-300">
+                {pendingImage && (
+                  <div className="ml-2 mr-1 flex items-center gap-2 rounded-xl border border-border/60 bg-background px-2 py-1">
+                    <img
+                      src={pendingImage.previewUrl}
+                      alt="待发送图片"
+                      className="h-10 w-10 rounded-lg object-cover"
+                    />
+                    <div className="max-w-28 truncate text-xs text-muted-foreground">
+                      {pendingImage.file.name}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={handleRemovePendingImage}
+                      className="h-7 w-7 rounded-full text-muted-foreground hover:text-foreground"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
+                <Button
+                  onClick={handleImageTrigger}
+                  disabled={isLoading}
+                  variant="ghost"
+                  size="icon"
+                  className="h-10 w-10 rounded-xl ml-1 text-muted-foreground hover:text-primary hover:bg-primary/10"
+                >
+                  <ImagePlus className="w-5 h-5" />
+                </Button>
+                <Button
+                  onClick={handleAudioTrigger}
+                  disabled={isLoading}
+                  variant="ghost"
+                  size="icon"
+                  className="h-10 w-10 rounded-xl text-muted-foreground hover:text-primary hover:bg-primary/10"
+                >
+                  <Mic className="w-5 h-5" />
+                </Button>
                 <Input
                   ref={inputRef}
                   value={inputValue}
                   onChange={(e) => setInputValue(e.target.value)}
                   onKeyPress={handleKeyPress}
+                  onPaste={(e) => {
+                    void handleInputPaste(e);
+                  }}
                   placeholder="请输入您关于教务、课程或考试的问题..."
                   disabled={isLoading}
                   className="flex-1 border-0 focus-visible:ring-0 shadow-none bg-transparent py-6 px-4 text-base placeholder:text-muted-foreground/50"
                 />
                 <Button
                   onClick={handleSendMessage}
-                  disabled={!inputValue.trim() || isLoading}
+                  disabled={(!inputValue.trim() && !pendingImage) || isLoading}
                   size="icon"
                   className={`h-10 w-10 rounded-xl transition-all duration-300 mr-1 ${
-                    !inputValue.trim() || isLoading 
+                    ((!inputValue.trim() && !pendingImage) || isLoading)
                       ? 'bg-muted text-muted-foreground' 
                       : 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-md hover:shadow-lg scale-100 active:scale-95'
                   }`}
@@ -530,6 +717,8 @@ export default function Index() {
                   <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
                   {selectedModel}
                 </span>
+                <span>•</span>
+                <span>支持粘贴图片并随问题发送</span>
                 {documents.length > 0 && (
                   <>
                     <span>•</span>

@@ -26,6 +26,29 @@ class RAGService:
         model_name: str | None = None,
         chat_id: int | None = None,
     ) -> tuple[str, ChatSession, list[dict[str, str | float | None]]]:
+        return await cls.query_with_search_text(
+            db=db,
+            user=user,
+            question=question,
+            search_text=question,
+            question_context=None,
+            knowledge_base_name=knowledge_base_name,
+            model_name=model_name,
+            chat_id=chat_id,
+        )
+
+    @classmethod
+    async def query_with_search_text(
+        cls,
+        db: Session,
+        user: User,
+        question: str,
+        search_text: str,
+        question_context: str | None,
+        knowledge_base_name: str,
+        model_name: str | None = None,
+        chat_id: int | None = None,
+    ) -> tuple[str, ChatSession, list[dict[str, str | float | None]]]:
         knowledge_base = db.query(KnowledgeBase).filter(KnowledgeBase.name == knowledge_base_name).first()
         if knowledge_base is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge base not found")
@@ -37,10 +60,11 @@ class RAGService:
             .all()
         )
 
-        ranked_results = await cls._search(question, chunks)
+        normalized_search_text = cls._normalize_search_text(search_text)
+        ranked_results = await cls._search(normalized_search_text, chunks)
         selected_results = cls._select_results(ranked_results, limit=cls.top_k)
         context = cls._build_context(selected_results)
-        prompt = cls._build_prompt(question, context)
+        prompt = cls._build_prompt(question, context, question_context=question_context)
         answer = await LLMService.answer(prompt, cls._system_prompt(knowledge_base_name), model_name=model_name)
 
         chat = cls._resolve_chat(db, user, knowledge_base_name, question, chat_id)
@@ -92,14 +116,19 @@ class RAGService:
         return "\n---\n\n".join(blocks)
 
     @staticmethod
-    def _build_prompt(question: str, context: str) -> str:
-        return (
+    def _build_prompt(question: str, context: str, question_context: str | None = None) -> str:
+        prompt = (
             "基于以下知识库内容回答用户问题。若文档未覆盖答案，请明确说明。"
             "如果答案需要跨多个片段综合判断，请先归纳证据再作答，不要因为单个片段不完整就直接说无法判断。\n\n"
+        )
+        if question_context:
+            prompt += f"补充上下文：\n{question_context}\n\n"
+        prompt += (
             f"相关文档内容：\n{context}\n\n"
             f"用户问题：{question}\n\n"
             "请给出准确、简洁、可执行的回答，并尽量引用文档信息。"
         )
+        return prompt
 
     @staticmethod
     def _system_prompt(knowledge_base_name: str) -> str:
@@ -181,7 +210,7 @@ class RAGService:
 
     @staticmethod
     def _extract_query_keywords(question: str) -> list[str]:
-        normalized = re.sub(r"[（）()，。！？、?？:：/]", " ", question)
+        normalized = re.sub(r"[（）()，。！？、?？:：/]", " ", RAGService._normalize_search_text(question))
         parts = [
             part.strip()
             for part in re.split(r"\s+|的|是|吗|么|请问|是否|是不是|有无|有没有", normalized)
@@ -222,6 +251,20 @@ class RAGService:
                 seen.add(keyword)
                 deduped.append(keyword)
         return deduped
+
+    @staticmethod
+    def _normalize_search_text(value: str) -> str:
+        def replace_short_year(match: re.Match[str]) -> str:
+            year = int(match.group(1))
+            if 0 <= year <= 99:
+                return f"20{year:02d}级"
+            return match.group(0)
+
+        normalized = re.sub(r"(?<!20)(\d{2})级", replace_short_year, value)
+        normalized = normalized.replace("程序设计Ⅰ", "程序设计I")
+        normalized = normalized.replace("程序设计丨", "程序设计I")
+        normalized = normalized.replace("程序设计1", "程序设计I")
+        return normalized
 
     @staticmethod
     def _extract_primary_subject(question: str) -> str | None:

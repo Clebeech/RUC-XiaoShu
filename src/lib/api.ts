@@ -61,6 +61,10 @@ export interface QueryResponse {
   }>;
 }
 
+export interface AudioTranscriptionResponse {
+  transcript: string;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getAuthToken();
   const headers = new Headers(init?.headers);
@@ -144,6 +148,35 @@ export const apiClient = {
         model,
         chat_id: chatId,
       }),
+    });
+  },
+
+  imageQuery(question: string, image: File, knowledgeBase: string, model: string, chatId?: number) {
+    const formData = new FormData();
+    formData.append('question', question);
+    formData.append('image', image);
+    formData.append('knowledge_base', knowledgeBase);
+    formData.append('model', model);
+    if (typeof chatId === 'number') {
+      formData.append('chat_id', String(chatId));
+    }
+
+    return request<QueryResponse>('/api/chat/image-query', {
+      method: 'POST',
+      body: formData,
+    });
+  },
+
+  transcribeAudio(audio: File, prompt?: string) {
+    const formData = new FormData();
+    formData.append('audio', audio);
+    if (prompt) {
+      formData.append('prompt', prompt);
+    }
+
+    return request<AudioTranscriptionResponse>('/api/audio/transcribe', {
+      method: 'POST',
+      body: formData,
     });
   },
 };
