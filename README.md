@@ -12,6 +12,33 @@
   - 聊天记录持久化
   - 模型选择器真实生效（`qwen-max / qwen-plus / qwen-turbo`）
 
+## 服务器一键重启
+
+如果项目已经部署在服务器 `/srv/rag-assistant`，可以直接执行下面这组命令完成：
+
+- 拉取最新代码
+- 重新构建前端
+- 重启后端服务
+- 重载 Nginx
+
+```bash
+cd /srv/rag-assistant && \
+git pull && \
+printf 'VITE_API_BASE_URL=\n' > .env.production && \
+pnpm install && \
+pnpm build && \
+sudo systemctl restart rag-backend && \
+sudo nginx -t && \
+sudo systemctl reload nginx
+```
+
+重启后建议顺手检查：
+
+```bash
+curl http://127.0.0.1:8010/health
+curl http://127.0.0.1/health
+```
+
 ## 目录结构
 
 - `src/`：前端源码

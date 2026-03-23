@@ -118,7 +118,7 @@ export default function Login() {
                 没有账号? 
                 <a href="#" className="text-primary hover:underline ml-1" onClick={(e) => {
                   e.preventDefault();
-                  toast.info('请联系教务处管理员开通账号');
+                  toast.info('请联系数学学院管理员开通账号');
                 }}>
                   联系管理员
                 </a>
@@ -128,7 +128,7 @@ export default function Login() {
         </Card>
 
         <p className="mt-8 text-xs text-muted-foreground text-center">
-          &copy; {new Date().getFullYear()} 中国人民大学教务处. All rights reserved.
+          &copy; {new Date().getFullYear()} 中国人民大学数学学院. All rights reserved.
         </p>
       </div>
     </div>
