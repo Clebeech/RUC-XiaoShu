@@ -468,6 +468,252 @@ which uvicorn
 /Users/tigerxu/Desktop/RUC/活动/第二次大创/rag_proj/workspace/shadcn-ui/backend/.venv/bin/uvicorn
 ```
 
+## 服务器部署
+
+当前项目已经适合按“`Nginx + systemd` 单机部署”方式上云。推荐先用公网 IP 跑通，再决定是否接域名和 HTTPS。
+
+### 部署目标
+
+- 前端：构建为静态文件，由 `Nginx` 托管
+- 后端：`FastAPI + uvicorn` 常驻运行，由 `Nginx` 反代到 `/api`
+- 数据：保留现有 `backend/rag_app.db` 与 `backend/data/uploads`
+
+### 目录建议
+
+推荐把仓库部署到：
+
+```text
+/srv/rag-assistant
+```
+
+后文默认都按这个路径举例。
+
+### 1. 服务器安装依赖
+
+假设服务器是 `Ubuntu / Debian`，并且你有 `sudo`：
+
+```bash
+sudo apt update
+sudo apt install -y nginx python3 python3-venv python3-pip nodejs npm
+sudo npm install -g pnpm
+```
+
+### 2. 拉代码到服务器
+
+```bash
+sudo mkdir -p /srv/rag-assistant
+sudo chown -R $USER:$USER /srv/rag-assistant
+git clone <你的仓库地址> /srv/rag-assistant
+cd /srv/rag-assistant
+```
+
+如果仓库已经在服务器上，只需要：
+
+```bash
+cd /srv/rag-assistant
+git pull
+```
+
+### 3. 配置生产环境变量
+
+前端生产环境：
+
+```bash
+cp .env.production.example .env.production
+```
+
+默认内容是：
+
+```env
+VITE_API_BASE_URL=/api
+```
+
+后端生产环境：
+
+```bash
+cp backend/.env.production.example backend/.env
+```
+
+然后编辑 `backend/.env`，至少补上：
+
+- `DEFAULT_ADMIN_PASSWORD`
+- `DASHSCOPE_API_KEY`
+
+推荐确认这些字段：
+
+```env
+APP_ENV=production
+APP_HOST=127.0.0.1
+APP_PORT=8000
+FRONTEND_ORIGIN=http://47.99.40.20
+DATABASE_URL=sqlite:///./rag_app.db
+UPLOAD_DIR=./data/uploads
+```
+
+### 4. 安装依赖并构建
+
+前端：
+
+```bash
+cd /srv/rag-assistant
+pnpm install
+pnpm build
+```
+
+后端：
+
+```bash
+cd /srv/rag-assistant/backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### 5. 迁移现有数据
+
+如果你要保留当前知识库和聊天记录，需要把本机这两部分拷到服务器：
+
+- `backend/rag_app.db`
+- `backend/data/uploads/`
+
+在本机执行示例：
+
+```bash
+scp /Users/tigerxu/Desktop/RUC/活动/第二次大创/rag_proj/workspace/shadcn-ui/backend/rag_app.db \
+  tigerxu_alphapy:/srv/rag-assistant/backend/
+```
+
+```bash
+rsync -avz /Users/tigerxu/Desktop/RUC/活动/第二次大创/rag_proj/workspace/shadcn-ui/backend/data/uploads/ \
+  tigerxu_alphapy:/srv/rag-assistant/backend/data/uploads/
+```
+
+不建议迁移这些开发材料：
+
+- `data_prepared/`
+- `data_normalized/`
+- `data_processed/`
+- 本地测试数据库
+
+### 6. 配置 systemd
+
+仓库里已经提供了服务示例文件：
+
+```text
+deploy/rag-backend.service.example
+```
+
+复制到系统目录：
+
+```bash
+sudo cp /srv/rag-assistant/deploy/rag-backend.service.example /etc/systemd/system/rag-backend.service
+```
+
+如果服务器用户名不是 `tigerxu`，请先编辑其中的：
+
+- `User`
+- `Group`
+- `WorkingDirectory`
+- `EnvironmentFile`
+- `ExecStart`
+
+然后启用并启动：
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable rag-backend
+sudo systemctl start rag-backend
+```
+
+检查状态：
+
+```bash
+sudo systemctl status rag-backend
+curl http://127.0.0.1:8000/health
+```
+
+### 7. 配置 Nginx
+
+仓库里已经提供了站点示例：
+
+```text
+deploy/nginx.rag-assistant.conf.example
+```
+
+复制并启用：
+
+```bash
+sudo cp /srv/rag-assistant/deploy/nginx.rag-assistant.conf.example /etc/nginx/sites-available/rag-assistant
+sudo ln -sf /etc/nginx/sites-available/rag-assistant /etc/nginx/sites-enabled/rag-assistant
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+这份配置已经包含：
+
+- 前端静态文件目录：`/srv/rag-assistant/dist`
+- React Router 刷新兜底：`try_files ... /index.html`
+- `/api/` 反代到 `127.0.0.1:8000`
+- `/health` 直接反代后端健康检查
+- 上传和多模态接口所需的 `25m` 请求体限制
+
+### 8. 首次上线检查
+
+建议按这个顺序验证：
+
+1. `curl http://127.0.0.1:8000/health`
+2. `curl http://47.99.40.20/health`
+3. 浏览器访问 `http://47.99.40.20`
+4. 管理员登录成功
+5. 已有知识库文档数量正常
+6. 文本提问可返回参考文献
+7. 图片提问可走 OCR + RAG
+8. `/admin/feedback` 看板能打开
+
+如果迁移的是旧版本向量数据，建议上线后对目标知识库执行一次 `reindex`。
+
+### 9. 常见部署排查
+
+#### 前端打开了，但接口 404 或跨域
+
+检查：
+
+- 前端是否使用了 `.env.production`
+- `VITE_API_BASE_URL` 是否为 `/api`
+- `backend/.env` 里的 `FRONTEND_ORIGIN` 是否为 `http://47.99.40.20`
+- `nginx` 是否启用了 `/api/` 反代
+
+#### `systemctl status rag-backend` 启动失败
+
+检查：
+
+- `/srv/rag-assistant/backend/.venv` 是否存在
+- `backend/.env` 是否已配置
+- `ExecStart` 是否指向虚拟环境内的 `uvicorn`
+- 日志可用：
+
+```bash
+sudo journalctl -u rag-backend -n 100 --no-pager
+```
+
+#### 页面能打开，但知识库是空的
+
+检查：
+
+- `backend/rag_app.db` 是否已经迁过去
+- `backend/data/uploads/` 是否完整迁移
+- 数据库文件权限是否允许当前服务用户读取
+
+#### 迁移后命中率变差
+
+如果你近期改过 embedding 模型、分块逻辑或文档规范化流程，建议重新执行：
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/knowledge-bases/education/reindex \
+  -H "Authorization: Bearer 你的登录token"
+```
+
 ## 一键回顾
 
 前后端分别运行：

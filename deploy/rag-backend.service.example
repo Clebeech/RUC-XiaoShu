@@ -1,0 +1,16 @@
+[Unit]
+Description=RAG Backend FastAPI Service
+After=network.target
+
+[Service]
+Type=simple
+User=tigerxu
+Group=tigerxu
+WorkingDirectory=/srv/rag-assistant/backend
+EnvironmentFile=/srv/rag-assistant/backend/.env
+ExecStart=/srv/rag-assistant/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
